@@ -1,0 +1,22 @@
+% latex table generated in R 4.3.0 by xtable 1.8-4 package
+% Wed Mar  5 10:41:40 2025
+\begin{table}[ht]
+\centering
+\begin{tabular}{|c|c|c|c|}
+  \hline
+ & Weights & Weights (Backdating 1 Yr) & Weights (Backdating 2 Yr) \\ 
+  \hline
+Rainfall(May) & 0.01 & 0.04 & 0.06 \\ 
+  Temperature (May) & 0.00 & 0.01 & 0.00 \\ 
+  Rainfall(June) & 0.00 & 0.00 & 0.00 \\ 
+  Temperature (June) & 0.03 & 0.10 & 0.07 \\ 
+  GW\_Level & 0.81 & 0.79 & 0.77 \\ 
+  Population & 0.00 & 0.00 & 0.00 \\ 
+  SoD & 0.00 & 0.00 & 0.00 \\ 
+  GSDP & 0.04 & 0.01 & 0.02 \\ 
+  AgGDP & 0.04 & 0.04 & 0.02 \\ 
+  Rice Cultivation Area(Kharif) & 0.06 & 0.00 & 0.06 \\ 
+   \hline
+\end{tabular}
+\caption{Summary of variable Weights for Synthetic Control} 
+\end{table}

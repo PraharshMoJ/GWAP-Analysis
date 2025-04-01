@@ -1,0 +1,3 @@
+"0","   "
+"0","   ## plot difference between treated and synthetic control"
+"0","   gaps.plot(synth_out_NDVI_BD, dataprep_NDVI_BD, Ylab = ""NDVI Difference"", Xlab = ""Year"", Main = ""Figure A8(B2): Difference: Treated and Synthetic Control (Back Dating)"")"

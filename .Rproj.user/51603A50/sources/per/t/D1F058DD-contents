@@ -1,0 +1,2307 @@
+---
+title: "Appendix A: Fueling the Fields on Fire"
+author: "Praharsh Patel [PhD Student, EEFE, PennState]"
+date: "March 05, 2025"
+output: html_document
+---
+<!-- Used for the final dissertation submission
+Date: March 4, 2025 
+-->
+
+All files of the document are available at: "C:/Users/praha/OneDrive - The Pennsylvania State University/PSU Research Work/Groundwater & Air Pollution/0_DC_GWAP/0_DC_GWAP"
+
+
+```{R, setup & Load Packages, include = F, echo=FALSE}
+# Packages
+library(knitr)
+# Knitr options
+opts_chunk$set(
+  comment = "#>",
+  fig.align = "center",
+  warning = F,
+  message = F
+)
+
+library(pacman)
+p_load(
+  #RCT,estimatr,haven,sqldf,readr
+  htmlTable,xtable,broom,psych, modelsummary,foreign, tidyverse, data.table, ggplot2, latex2exp, dplyr, stringr, lfe, stargazer, fixest, texreg, janitor, quantreg, foreign, ggpubr, qte, sandwich, multiwayvcov)
+
+#For spatial analysis
+p_load(readxl,sp, sf,rgdal,raster,gdalUtils,maps,mapdata, MODIS, ncdf4, ggplot2, spatialEco,EnvStats,wesanderson)
+# For synthetic control
+p_load(tidysynth,Synth,SCtools)
+# Loading png file
+p_load(png)
+getwd()
+#setwd("C:/Users/praha/OneDrive - The Pennsylvania State University/PSU Research Work/Groundwater & Air Pollution/0_DC_GWAP/0_DC_GWAP")
+list.files()
+
+```
+
+### A1. Data 
+#### A1(A). Load data
+Using cleaned and compiled data for NDVI,GW, & AOD.
+Data is compiled for all possible states but for analysis, I am considering 17 states as listed in "State_list17". For GWL, data for state of "Telangana" is missing. Also, data for the year Rajasthan in year 2004 is missing.
+
+For Rajasthan 2004, mean of 2003 and 2005 is imputed as 2004 value for the trend plots and Synthetic Control as they need balanced panel. For regression analysis, Rajasthan:2004 is left "NA". 
+Use the pre-compiled data for the 14 states 
+```{R, (1) load data, include = T, echo=FALSE}
+#Load panel data prepared for 20 States 
+# GW_Filter<-read.csv("GW_Filter_04_06.csv")
+# NDVI_Filter<-read.csv("NDVI_Filter_04_06.csv")
+# AOD_Filter_P<-read.csv("AOD_Filter_04_06.csv")
+list.files("./0_Final_Data_GWAP")
+NDVI_Filter<-read.csv("0_Final_Data_GWAP/NDVI_Filter20_SC_05_13.csv")
+GW_Filter<-read.csv("0_Final_Data_GWAP/GW_Filter19_SC_05_13.csv") 
+GW_Filter_Plot<-read.csv("0_Final_Data_GWAP/GW_Filter19_SC_05_13_RJ_imp.csv") #2004:RJ interpolated as mean of 2003 and 2005
+
+AOD_Filter_P<-read.csv("0_Final_Data_GWAP/AOD_Filter20_SC_05_13.csv")
+
+State_list17<-c("Andhra Pradesh","Bihar","Chhattisgarh","Gujarat","Haryana",
+                      "Jharkhand","Karnataka","Kerala","Madhya Pradesh","Maharashtra",
+                      "Orissa","Punjab","Rajasthan","Tamilnadu","Telangana",
+                      "Uttar Pradesh","West Bengal")
+
+  NDVI_Filter<-NDVI_Filter[NDVI_Filter$State %in% State_list17, ]
+  GW_Filter<-GW_Filter[GW_Filter$State %in% State_list17, ]
+  GW_Filter_Plot<-GW_Filter_Plot[GW_Filter_Plot$State %in% State_list17, ]
+  AOD_Filter_P<-AOD_Filter_P[AOD_Filter_P$State %in% State_list17, ]
+```
+
+Figure A1(A1). Gridded NDVI data 
+```{R, (1A1) NDVI Images, include = T, echo=FALSE}
+  NDVI<-readPNG("Figures_Tables/AOD_Praharsh/NDVI2.png")
+  grid::grid.raster(NDVI)
+```
+    
+Figure A1(A2). Gridded AOD data availability for P1
+
+Here the count provides number of records available in each periods of 41 days length. records include 2 satellite data surces so there shall be 41x2=82 records for each grid pixel for complete data availability. (Year 2002 for Perid 1 has only 1 satellite operational(Aqua Satellite was launched on May 4, 2002)).
+
+```{R, (1A1) AOD Images, include = T, echo=FALSE}
+  CP1<-readPNG("Figures_Tables/AOD_Praharsh/C_P1.png")
+  grid::grid.raster(CP1)
+```
+
+Figure A1(A3). Gridded AOD data availability for P2
+```{R, (1A2) AOD Images, include = T, echo=FALSE}
+  CP2<-readPNG("Figures_Tables/AOD_Praharsh/C_P2.png")
+  grid::grid.raster(CP2)
+```
+
+Figure A1(A4). Gridded Average AOD level in P1
+
+Average AOD level is counted using all the available records for each grid pixel.
+
+```{R, (1A3) AOD Images, include = T, echo=FALSE}
+  MP1<-readPNG("Figures_Tables/AOD_Praharsh/M_P1.png")
+  grid::grid.raster(MP1)
+```
+
+Figure A1(A5). Average AOD level in P2
+```{R, (1A4) AOD Images, include = T, echo=FALSE}
+  MP2<-readPNG("Figures_Tables/AOD_Praharsh/M_P2.png")
+  grid::grid.raster(MP2)
+```
+
+#### A1(B). Summary Table
+Summary for state level data (Treatment State and Time) 
+```{r,1b Balance Tables,display=F,results='asis',eval=TRUE, echo=FALSE}
+
+dat_NDVI<-NDVI_Filter%>%
+  group_by(Post,Tr_State)%>%
+  summarise(
+    Count = n(),
+    Mean = format(round(mean(NDVI), 2), nsmall = 2),
+    Min = format(round(min(NDVI), 2), nsmall = 2),
+    Max = format(round(max(NDVI), 2), nsmall = 2),
+    SD = format(round(sd(NDVI), 2), nsmall = 2)
+  )
+dat_NDVI<-as.data.frame(dat_NDVI)
+htmlTable(dat_NDVI, 
+          ctable= c("solid","double"),
+          caption="Table A1(B1): NDVI Summary Statistics")
+
+dat_GWL<-GW_Filter_Plot%>%
+  group_by(Post,Tr_State)%>%
+  summarise(
+    Count = n(),
+    Mean = format(round(mean(GW_Level), 2), nsmall = 2),
+    Min = format(round(min(GW_Level), 2), nsmall = 2),
+    Max = format(round(max(GW_Level), 2), nsmall = 2),
+    SD = format(round(sd(GW_Level), 2), nsmall = 2)
+  )
+dat_GWL<-as.data.frame(dat_GWL)
+htmlTable(dat_GWL, 
+          ctable= c("solid","double"),
+          caption="Table A1(B2): Groundwater Level Summary Statistics")
+
+dat_AOD<-AOD_Filter_P%>%
+  group_by(Post,Tr_State,Period)%>%
+  summarise(
+    Count = n(),
+    Mean = format(round(mean(AOD), 2), nsmall = 2),
+    Min = format(round(min(AOD), 2), nsmall = 2),
+    Max = format(round(max(AOD), 2), nsmall = 2),
+    SD = format(round(sd(AOD), 2), nsmall = 2)
+  )
+dat_AOD<-as.data.frame(dat_AOD)
+htmlTable(dat_AOD, 
+          ctable= c("solid","double"),
+          caption="Table A1(B3): AOD Level Summary Statistics")
+
+```
+
+#### A1(C). Analysis Data Plots
+##### A1(C1). Plotting the DiD trends for NDVI
+```{r,1c plotting NDVI data,display=F, echo=FALSE}
+  library(ggplot2)
+  NDVI_Filter$States<-ifelse(NDVI_Filter$Tr_State==1,"HR/PB","Rest")
+  gdat_NDVI = NDVI_Filter %>%
+    group_by(States, Year, Post,Tr_State) %>%
+    summarize(Log_NDVI = mean(Log_NDVI))
+    
+  gg_NDVI = ggplot(gdat_NDVI, aes(y=Log_NDVI,x=Year, color= States)) +
+    geom_line() +
+    geom_vline(xintercept=2009, linetype = "dotted") +
+    theme_bw() +
+    ylab("Log(NDVI) [June]")
+    # + ggtitle("Figure A1(C1): Log(NDVI) [June]")+ylab("Log(NDVI)")
+  
+    
+    y.pre.tr <<- format(round(mean(filter(gdat_NDVI,Tr_State==1, Post==0)$Log_NDVI)  ,2), nsmall = 2)
+    y.exp.tr <<- format(round(mean(filter(gdat_NDVI,Tr_State==1, Post==1)$Log_NDVI)  ,2), nsmall = 2)
+    y.pre.co <<- format(round(mean(filter(gdat_NDVI,Tr_State==0, Post==0)$Log_NDVI)  ,2), nsmall = 2)
+    y.exp.co <<- format(round(mean(filter(gdat_NDVI,Tr_State==0, Post==1)$Log_NDVI)  ,2), nsmall = 2)
+    gg_NDVI = gg_NDVI + 
+      annotate("label", x=2005, y=-1.2,label=y.pre.tr) +
+      annotate("label", x=2005, y=-0.9,label=y.pre.co) +
+      annotate("label", x=2012, y=-1.3,label=y.exp.tr) +
+      annotate("label", x=2012, y=-0.9,label=y.exp.co)
+  gg_NDVI
+  ggsave(gg_NDVI,file = "Figures_Tables/NDVI_Trend.png",
+         height = 4,
+         width = 6
+         )
+```
+
+##### A1(C2). Plotting the DiD trends for GWL (RJ:2004 imputed)
+```{r,1c plotting GWL data,display=F, echo=FALSE}
+  library(ggplot2)
+  GW_Filter_Plot$States<-ifelse(GW_Filter_Plot$Tr_State==1,"HR/PB","Rest")
+  gdat_GWL = GW_Filter_Plot %>%
+    group_by(States, Year, Post,Tr_State) %>%
+    summarize(Log_GW_Level = mean(Log_GW_Level))
+    
+  gg_GWL = ggplot(gdat_GWL, aes(y=Log_GW_Level,x=Year, color= States)) +
+    geom_line() +
+    geom_vline(xintercept=2009, linetype = "dotted") +
+    theme_bw() +
+    # ggtitle("Figure A1(C2): Log(Groundwater Level) [Premonsoon] (Below Ground) ")+
+    ylab("Log(GW Level)")
+    
+    y.pre.tr <<- format(round(mean(filter(gdat_GWL,Tr_State==1, Post==0)$Log_GW_Level) ,2), nsmall = 2)
+    y.exp.tr <<- format(round(mean(filter(gdat_GWL,Tr_State==1, Post==1)$Log_GW_Level) ,2), nsmall = 2)
+    y.pre.co <<- format(round(mean(filter(gdat_GWL,Tr_State==0, Post==0)$Log_GW_Level) ,2), nsmall = 2)
+    y.exp.co <<- format(round(mean(filter(gdat_GWL,Tr_State==0, Post==1)$Log_GW_Level) ,2), nsmall = 2)
+    
+    gg_GWL = gg_GWL + 
+      annotate("label", x=2005, y=2.3,label=y.pre.tr) +
+      annotate("label", x=2005, y=2,label=y.pre.co) +
+      annotate("label", x=2012, y=2.35,label=y.exp.tr) +
+      annotate("label", x=2012, y=2,label=y.exp.co)
+    gg_GWL
+  ggsave(gg_GWL,file = "Figures_Tables/GWL_Trend.png",
+         height = 4,
+         width = 6
+         )
+```
+
+##### A1(C3). Plotting the DiD trends for AOD.
+First Plotting the period-wise separate plots and then using difference in Log(AOD) for Period 1 and Period 2 for DiD visualization.
+```{r,1c plotting AOD data,display=F, echo=FALSE}
+  library(ggplot2)
+  AOD_Filter_P$States<-ifelse(AOD_Filter_P$Tr_State== 1,"PB/HR","Rest")
+  AOD_Filter_P$States_1<-ifelse(AOD_Filter_P$State== "Punjab","PB",
+                              ifelse(AOD_Filter_P$State== "Haryana","HR","Rest"))
+  AOD_Filter_P$States_P<-paste0(AOD_Filter_P$States,":P",AOD_Filter_P$Period+1)
+  AOD_Filter_P1<-subset(AOD_Filter_P,AOD_Filter_P$Period==0)
+  AOD_Filter_P2<-subset(AOD_Filter_P,AOD_Filter_P$Period==1)
+  
+
+  ## State-wise trend lines for the AOD in Period 2.
+ gg_AOD_S <- ggplot(AOD_Filter_P2, aes(y = Log_AOD, x = Year, group = State, color = State, size = State)) +
+  geom_line() +
+  geom_vline(xintercept = 2009, linetype = "dotted") +
+  theme_bw() +
+  ylab("Log(AOD)") +
+  scale_color_manual(values = setNames(
+    ifelse(unique(AOD_Filter_P2$State) %in% c("Punjab"), "#00BFC4", 
+           ifelse(unique(AOD_Filter_P2$State) %in% c("Haryana"),"#F8766D", "grey")),
+    unique(AOD_Filter_P2$State)
+  )) +
+  scale_size_manual(values = setNames(
+    ifelse(unique(AOD_Filter_P2$State) %in% c("Punjab", "Haryana"), 1, 0.5),
+    unique(AOD_Filter_P2$State)
+  )) +
+  guides(color = "none", size = "none")  # Optional: removes legends for color and size
+
+gg_AOD_S
+
+  ggsave(gg_AOD_S, file = "Figures_Tables/AOD_Trend_AllS_P2.png",
+         height = 4,
+         width = 6)
+  #Reason Why we can not use the Synthetic Control for the AOD Data. Haryana & Punjab are the Outliers
+  
+## Plot 2: Treated vs Control P1 and P2  
+  gdat_AOD_P = AOD_Filter_P %>%
+    group_by(States_P, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+
+  gdat_AOD_P1 = AOD_Filter_P1 %>%
+    group_by(States, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+
+  gdat_AOD_P2 = AOD_Filter_P2 %>%
+    group_by(States, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+  
+## Plot 3: group-wise Differnce in AOD [P2-P1]
+  gdat_AOD_Diff <- left_join(gdat_AOD_P2,gdat_AOD_P1, by = c("States","Year") )  
+  gdat_AOD_Diff$AOD_Diff<-gdat_AOD_Diff$Log_AOD.x-gdat_AOD_Diff$Log_AOD.y
+  
+  gg_AOD = ggplot(gdat_AOD_P, aes(y=Log_AOD, x=Year, color= States_P)) +
+      geom_line() +
+      geom_vline(xintercept=2009, linetype = "dotted") +
+      theme_bw() +
+      # ggtitle("Figure A1(C3.2): Log(AOD) [Period 1 & Period 2]")+
+      ylab("Log(AOD)")
+  
+  gg_AOD
+  ggsave(gg_AOD, file = "Figures_Tables/AOD_Trend_P.png",
+         height = 4,
+         width = 6)
+  
+  gg_AOD_D = ggplot(gdat_AOD_Diff, aes(y=AOD_Diff, x=Year, color= States)) +
+      geom_line() +
+      geom_vline(xintercept=2009, linetype = "dotted") +
+      theme_bw() +
+      # ggtitle("Difference in Log(AOD) [Period 2-Period 1]")+
+      ylab("Log(AOD) [P2-P1]")
+  
+    y.pre.tr <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==1, Post.x==0)$AOD_Diff)  ,2), nsmall = 2)
+    y.exp.tr <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==1, Post.x==1)$AOD_Diff)  ,2), nsmall = 2)
+    y.pre.co <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==0, Post.x==0)$AOD_Diff)  ,2), nsmall = 2)
+    y.exp.co <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==0, Post.x==1)$AOD_Diff)  ,2), nsmall = 2)
+    gg_AOD_D = gg_AOD_D + 
+      annotate("label", x=2005, y=0.5,label=y.pre.tr) +
+      annotate("label", x=2005, y=0,label=y.pre.co) +
+      annotate("label", x=2012, y=0.7,label=y.exp.tr) +
+      annotate("label", x=2012, y=0.2,label=y.exp.co)
+    gg_AOD_D
+  ggsave(gg_AOD_D, file = "Figures_Tables/AOD_Trend_Diff.png",
+         height = 4,
+         width = 6)
+  
+## Plot 4: Differnce in AOD [P2-P1]
+  AOD_Filter_Diff <- left_join(AOD_Filter_P2[,c(2,3,11)],AOD_Filter_P1[,c(2,3,11)], by = c("State","Year") )  
+  AOD_Filter_Diff$AOD_Diff<-AOD_Filter_Diff$log_AOD.x-AOD_Filter_Diff$log_AOD.y
+
+ # Create a new column to classify states
+AOD_Filter_Diff$Color_Group <- ifelse(AOD_Filter_Diff$State %in% c("Punjab", "Haryana"), 
+                                      AOD_Filter_Diff$State, "Others")
+
+# Plot with grouped legend for "Others"
+  gg_AOD_DS <- ggplot(AOD_Filter_Diff, aes(y = AOD_Diff, x = Year, group = State, color = Color_Group, size = Color_Group)) +
+  geom_line() +
+  geom_vline(xintercept = 2009, linetype = "dotted") +
+  theme_bw() +
+  ylab("Difference in Log(AOD)") +
+  scale_color_manual(
+    values = c("Punjab" = "#00BFC4", "Haryana" = "#F8766D", "Others" = "grey"),
+    name = "State"
+  ) +
+  scale_size_manual(
+    values = c("Punjab" = 1, "Haryana" = .8, "Others" = 0.35),
+    guide = "none"  # Hide size legend
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 1)))  # Ensure uniform legend size
+
+  # Print the plot
+  gg_AOD_DS
+
+# Save the plot
+  ggsave(gg_AOD_DS, file = "Figures_Tables/AOD_Trend_AllS_Diff.png",
+         height = 4,
+         width = 8)
+
+```
+
+### A2. Event Study
+#### A2(A). Event Study Models for NDVI
+```{r,2(a) NDVI Event Study Regressions,display=F, echo=FALSE}
+    ES_Model_NDVI<- felm(NDVI~relevel(factor(Time_To_Treatment*Tr_State),ref = "-1")
+                         |Year+State|0|State+Year, data = NDVI_Filter)
+    ES_Model_NDVI2<- felm(NDVI~relevel(factor(Time_To_Treatment*Tr_State),ref = "-1")
+                          +Rainfall_May+Rainfall_June
+                          |Year+State|0|State+Year, data = NDVI_Filter)
+    ES_Model_NDVI3<- felm(NDVI~relevel(factor(Time_To_Treatment*Tr_State),ref = "-1")
+                          +Rainfall_May+Rainfall_June+Temp_June
+                          |Year+State|0|State+Year, data = NDVI_Filter)
+      #Log-Linear
+    ESL_Model_NDVI3<-  felm(Log_NDVI~relevel(factor(Time_To_Treatment*Tr_State),ref = "-1")
+                            +Rainfall_May+Rainfall_June+Temp_June
+                            |Year+State|0|State+Year, data = NDVI_Filter)
+      #Log-Log
+    ESLL_Model_NDVI3<-  felm(Log_NDVI~relevel(factor(Time_To_Treatment*Tr_State),ref = "-1")
+                             +Log_Rainfall_May+Log_Rainfall_June+Log_Temp_June
+                             |Year+State|0|State+Year, data = NDVI_Filter)
+```
+
+A2(A1). NDVI_M1. Plotting NDVI TWFE Model w/o any control
+```{r,2(a) ES_Model_NDVI Event Study Regressions,display=F, echo=FALSE}
+   # summary(ES_Model_NDVI)
+        ES_NDVI_Coef<-as.data.frame(ES_Model_NDVI$coefficients) #Model Coef   
+        ES_NDVI_Coef<-as.data.frame(ES_NDVI_Coef)
+        ES_NDVI_Coef$SE<-ES_Model_NDVI$cse #Model CSE
+        ES_NDVI_Coef<-ES_NDVI_Coef[1:14,]
+        ES_NDVI_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_NDVI_Coef[15,]=c(0,0,-1)
+        colnames(ES_NDVI_Coef)<-c("NDVI_Coef","NDVI_SE","Time_To_Treatment")
+        
+        ES_NDVI_Coef$UB<-(ES_NDVI_Coef$NDVI_Coef)+1.96*(ES_NDVI_Coef$NDVI_SE)
+        ES_NDVI_Coef$LB<-(ES_NDVI_Coef$NDVI_Coef)-1.96*(ES_NDVI_Coef$NDVI_SE)
+        
+        ggplot(ES_NDVI_Coef, aes(x = Time_To_Treatment, y = NDVI_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("NDVI") +
+          ggtitle("Figure A2(A1): NDVI: Event Study Plot (W/o RF Control)")+geom_hline(yintercept=0)
+   # ggsave("14_ES_NDVI_RL.png")
+```
+
+A2(A2). NDVI_M2. Plotting NDVI TWFE Model w/ May and June RF control
+```{r,2(a) ES_Model_NDVI2 Event Study Regressions,display=F, echo=FALSE}
+   # summary(ES_Model_NDVI2)
+        ES_NDVI_Coef<-as.data.frame(ES_Model_NDVI2$coefficients) #Model Coef   
+        ES_NDVI_Coef<-as.data.frame(ES_NDVI_Coef)
+        ES_NDVI_Coef$SE<-ES_Model_NDVI2$cse #Model CSE
+        ES_NDVI_Coef<-ES_NDVI_Coef[1:14,]
+        ES_NDVI_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_NDVI_Coef[15,]=c(0,0,-1)
+        colnames(ES_NDVI_Coef)<-c("NDVI_Coef","NDVI_SE","Time_To_Treatment")
+        
+        ES_NDVI_Coef$UB<-(ES_NDVI_Coef$NDVI_Coef)+1.96*(ES_NDVI_Coef$NDVI_SE)
+        ES_NDVI_Coef$LB<-(ES_NDVI_Coef$NDVI_Coef)-1.96*(ES_NDVI_Coef$NDVI_SE)
+        
+        ggplot(ES_NDVI_Coef, aes(x = Time_To_Treatment, y = NDVI_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("NDVI") +
+          ggtitle("Figure A2(A2): NDVI: Event Study Plot (W/ May & June RF Control)")+geom_hline(yintercept=0)
+   # ggsave("14_ES_NDVI_RF_RL.png")
+```
+
+A2(A3). NDVI_M3. Plotting NDVI TWFE Model w/ May and June RF, June Temp control
+```{r,2(a) ES_Model_NDVI3 Event Study Regressions,display=F, echo=FALSE}
+    #summary(ES_Model_NDVI3)
+        ES_NDVI_Coef<-as.data.frame(ES_Model_NDVI3$coefficients) #Model Coef   
+        ES_NDVI_Coef<-as.data.frame(ES_NDVI_Coef)
+        ES_NDVI_Coef$SE<-ES_Model_NDVI3$cse #Model CSE
+        ES_NDVI_Coef<-ES_NDVI_Coef[1:14,]
+        ES_NDVI_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_NDVI_Coef[15,]=c(0,0,-1)
+        colnames(ES_NDVI_Coef)<-c("NDVI_Coef","NDVI_SE","Time_To_Treatment")
+        
+        ES_NDVI_Coef$UB<-(ES_NDVI_Coef$NDVI_Coef)+1.96*(ES_NDVI_Coef$NDVI_SE)
+        ES_NDVI_Coef$LB<-(ES_NDVI_Coef$NDVI_Coef)-1.96*(ES_NDVI_Coef$NDVI_SE)
+        
+        ggplot(ES_NDVI_Coef, aes(x = Time_To_Treatment, y = NDVI_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("NDVI") +
+          ggtitle("Figure A2(A3): NDVI: Event Study Plot (W/ May+June RF & June Temp  Control)")+geom_hline(yintercept=0)
+   # ggsave("14_ES_NDVI_RFTP_RL.png")
+```
+
+A2(A4). NDVI_M4. Plotting log(NDVI)-Linear Control TWFE Model w/ May and June RF, June Temp control
+```{r,2(a) ESL_Model_NDVI3 Event Study Regressions,display=F, echo=FALSE}
+    #summary(ESL_Model_NDVI3)
+        ES_NDVI_Coef<-as.data.frame(ESL_Model_NDVI3$coefficients) #Model Coef   
+        ES_NDVI_Coef<-as.data.frame(ES_NDVI_Coef)
+        ES_NDVI_Coef$SE<-ESL_Model_NDVI3$cse #Model CSE
+        ES_NDVI_Coef<-ES_NDVI_Coef[1:14,]
+        ES_NDVI_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_NDVI_Coef[15,]=c(0,0,-1)
+        colnames(ES_NDVI_Coef)<-c("NDVI_Coef","NDVI_SE","Time_To_Treatment")
+        
+        ES_NDVI_Coef$UB<-(ES_NDVI_Coef$NDVI_Coef)+1.96*(ES_NDVI_Coef$NDVI_SE)
+        ES_NDVI_Coef$LB<-(ES_NDVI_Coef$NDVI_Coef)-1.96*(ES_NDVI_Coef$NDVI_SE)
+        
+        ggplot(ES_NDVI_Coef, aes(x = Time_To_Treatment, y = NDVI_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("Log(NDVI)") +
+          ggtitle("Figure A2(A4): NDVI: Event Study Plot (W/ May+June RF & June Temp  Control)")+geom_hline(yintercept=0)
+   # ggsave("14_ESL_NDVI_RFTP_RL.png")
+```
+
+##### A2(A5). NDVI_M5. Plotting log(NDVI)-Log Control TWFE Model w/ May and June RF, June Temp control
+(Used in the Paper)
+```{r,2(a) ESLL_Model_NDVI3 Event Study Regressions,display=F, echo=FALSE}
+   # summary(ESLL_Model_NDVI3)
+        ES_NDVI_Coef<-as.data.frame(ESLL_Model_NDVI3$coefficients) #Model Coef   
+        ES_NDVI_Coef<-as.data.frame(ES_NDVI_Coef)
+        ES_NDVI_Coef$SE<-ESLL_Model_NDVI3$cse #Model CSE
+        ES_NDVI_Coef<-ES_NDVI_Coef[1:14,]
+        ES_NDVI_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_NDVI_Coef[15,]=c(0,0,-1)
+        colnames(ES_NDVI_Coef)<-c("NDVI_Coef","NDVI_SE","Time_To_Treatment")
+        
+        ES_NDVI_Coef$UB<-(ES_NDVI_Coef$NDVI_Coef)+1.96*(ES_NDVI_Coef$NDVI_SE)
+        ES_NDVI_Coef$LB<-(ES_NDVI_Coef$NDVI_Coef)-1.96*(ES_NDVI_Coef$NDVI_SE)
+        
+        ES_NDVI_Coef$before_after <- ifelse(ES_NDVI_Coef$Time_To_Treatment < 0,0,1)
+        ES_NDVI_Coef$Year <- ES_NDVI_Coef$Time_To_Treatment + 2009
+        
+        ggplot(ES_NDVI_Coef, aes(x = Year, y = NDVI_Coef, color=factor(before_after))) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+          geom_smooth(data = subset(ES_NDVI_Coef, before_after == 0), aes(x = Year, y = NDVI_Coef), method = "lm", se = FALSE, linetype = "dashed", color = "#F8766D") +  # Trendline for before treatment
+  geom_smooth(data = subset(ES_NDVI_Coef, before_after == 1), aes(x = Year, y = NDVI_Coef), method = "lm", se = FALSE, linetype = "dashed", color = "#00BFC4") +  # Trendline for after treatment
+  theme_bw() +
+          geom_vline(xintercept = 2009, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("Estimate [Log(NDVI)]") +
+          #ggtitle("Log(NDVI): Event Study Plot")+
+          ggtitle("")+
+          geom_hline(yintercept=0)+ #Check Title
+          labs(color="")+
+          xlim(2001,2017)
+    ggsave("Figures_Tables/ESLL_NDVI_RFTP_RL.png",
+           width = 8,
+           height = 4)
+```
+
+#### A2(B). Event Study Models for GWL
+```{r,2(b) GWL Event Study Regressions,display=F,results='asis', echo=FALSE}
+#Adding Rainfall and Temp in June
+GW_Filter$Log_Temp_June<-GW_Filter$Temp_June
+GW_Filter$Log_Rainfall_June<-GW_Filter$Rainfall_June
+
+    ES_Model_GW<- felm(GW_Level~relevel(factor(Time_To_Treatment*Tr_State),ref="-1")
+                        |State+Year|0|State+Year, data = GW_Filter)
+    ES_Model_GW2<- felm(GW_Level~relevel(factor(Time_To_Treatment*Tr_State),ref="-1")
+                        +Rainfall_May+Rainfall_June
+                        |State+Year|0|State+Year, data = GW_Filter)
+    ES_Model_GW3<- felm(GW_Level~relevel(factor(Time_To_Treatment*Tr_State),ref="-1")
+                        +Rainfall_May+Rainfall_June+Temp_May+Temp_June
+                        |State+Year|0|State+Year, data = GW_Filter)
+      #Log Models
+    ESL_Model_GW3<- felm(Log_GW_Level~relevel(factor(Time_To_Treatment*Tr_State),ref="-1")
+                         +Rainfall_May+Rainfall_June+Temp_May+Temp_June
+                         |State+Year|0|State+Year, data = GW_Filter)
+      #Log-Log
+    ESLL_Model_GW3<- felm(Log_GW_Level~relevel(factor(Time_To_Treatment*Tr_State),ref="-1")
+                        +Log_Rainfall_May+Log_Rainfall_June+Log_Temp_May+Log_Temp_June
+                        |State+Year|0|State+Year, data = GW_Filter)
+```
+
+A2(B1). GWL_M1. Plotting GWL TWFE Model w/o any control
+```{r,2(b) ES_Model_GW Event Study Regressions,display=F,results='asis', eval=FALSE, echo=FALSE}
+     #   summary(ES_Model_GW)
+        ES_GS_Coef<-as.data.frame(ES_Model_GW$coefficients)  #Model Coef  
+        ES_GS_Coef<-as.data.frame(ES_GS_Coef)
+        ES_GS_Coef$SE<-ES_Model_GW$cse #Model CSE
+        ES_GS_Coef<-ES_GS_Coef[1:14,]
+        ES_GS_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_GS_Coef[15,]=c(0,0,-1)
+        colnames(ES_GS_Coef)<-c("GW_Coef","GW_SE","Time_To_Treatment")
+        
+        ES_GS_Coef$UB<-(ES_GS_Coef$GW_Coef)+1.96*(ES_GS_Coef$GW_SE)
+        ES_GS_Coef$LB<-(ES_GS_Coef$GW_Coef)-1.96*(ES_GS_Coef$GW_SE)
+        
+        ggplot(ES_GS_Coef, aes(x = Time_To_Treatment, y = GW_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("GW Level (Below Ground(m))") +
+          ggtitle("Figure A2(B1): GW Level: Event Study Plot (W/o Control)")+geom_hline(yintercept=0) #Change Title
+      #ggsave("14_ES_GWL_RL.png")  #Change File Name
+
+```
+
+A2(B2). GWL_M2. Plotting GWL TWFE Model w/ May RF control
+```{r,2(b) ES_Model_GW2 Event Study Regressions,display=F,results='asis', echo=FALSE}
+      #  summary(ES_Model_GW2)
+        ES_GS_Coef<-as.data.frame(ES_Model_GW2$coefficients)  #Model Coef  
+        ES_GS_Coef<-as.data.frame(ES_GS_Coef)
+        ES_GS_Coef$SE<-ES_Model_GW2$cse #Model CSE
+        ES_GS_Coef<-ES_GS_Coef[1:14,]
+        ES_GS_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_GS_Coef[15,]=c(0,0,-1)
+        colnames(ES_GS_Coef)<-c("GW_Coef","GW_SE","Time_To_Treatment")
+        
+        ES_GS_Coef$UB<-(ES_GS_Coef$GW_Coef)+1.96*(ES_GS_Coef$GW_SE)
+        ES_GS_Coef$LB<-(ES_GS_Coef$GW_Coef)-1.96*(ES_GS_Coef$GW_SE)
+        
+        ggplot(ES_GS_Coef, aes(x = Time_To_Treatment, y = GW_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("GW Level (Below Ground(m))") +
+          ggtitle("Figure A2(B2): GW Level: Event Study Plot (W/ May RF Control)")+geom_hline(yintercept=0) #Change Title
+      #ggsave("14_ES_GWL_RF_RL.png")  #Change File Name
+
+```
+
+A2(B3). GWL_M3. Plotting GWL TWFE Model w/ May RF & May TP control
+```{r,2(b) ES_Model_GW3 Event Study Regressions,display=F, echo=FALSE}
+     #   summary(ES_Model_GW3)
+        ES_GS_Coef<-as.data.frame(ES_Model_GW3$coefficients)  #Model Coef  
+        ES_GS_Coef<-as.data.frame(ES_GS_Coef)
+        ES_GS_Coef$SE<-ES_Model_GW3$cse #Model CSE
+        ES_GS_Coef<-ES_GS_Coef[1:14,]
+        ES_GS_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_GS_Coef[15,]=c(0,0,-1)
+        colnames(ES_GS_Coef)<-c("GW_Coef","GW_SE","Time_To_Treatment")
+        
+        ES_GS_Coef$UB<-(ES_GS_Coef$GW_Coef)+1.96*(ES_GS_Coef$GW_SE)
+        ES_GS_Coef$LB<-(ES_GS_Coef$GW_Coef)-1.96*(ES_GS_Coef$GW_SE)
+        
+        ggplot(ES_GS_Coef, aes(x = Time_To_Treatment, y = GW_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("GW Level (Below Ground(m))") +
+          ggtitle("Figure A2(B3): GW Level: Event Study Plot (W/ May RF & Temp Control)")+geom_hline(yintercept=0) #Change Title
+      #ggsave("14_ES_GWL_RFTP_RL.png")  #Change File Name
+
+```
+
+A2(B4). GWL_M4. Plotting Log(GWL)-linear control TWFE Model w/ May RF & May TP control
+```{r,2(b) ESL_Model_GW3 Event Study Regressions,display=F, echo=FALSE}
+    #    summary(ESL_Model_GW3) #Model summary
+        ES_GS_Coef<-as.data.frame(ESL_Model_GW3$coefficients)  #Model Coef  
+        ES_GS_Coef<-as.data.frame(ES_GS_Coef)
+        ES_GS_Coef$SE<-ESL_Model_GW3$cse #Model CSE
+        ES_GS_Coef<-ES_GS_Coef[1:14,]
+        ES_GS_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_GS_Coef[15,]=c(0,0,-1)
+        colnames(ES_GS_Coef)<-c("GW_Coef","GW_SE","Time_To_Treatment")
+        
+        ES_GS_Coef$UB<-(ES_GS_Coef$GW_Coef)+1.96*(ES_GS_Coef$GW_SE)
+        ES_GS_Coef$LB<-(ES_GS_Coef$GW_Coef)-1.96*(ES_GS_Coef$GW_SE)
+        
+        ggplot(ES_GS_Coef, aes(x = Time_To_Treatment, y = GW_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("Log (GW Level) (Below Ground(m))") +
+          ggtitle("Figure A2(B4): Log(GW Level): Event Study Plot (W/ May RF & Temp Control)")+geom_hline(yintercept=0)#Title
+      #ggsave("14_ESL_GWL_RFTP_RL.png")  #Change File Name
+
+```
+
+##### A2(B5). GWL_M5. Plotting Log(GWL)-Log control TWFE Model w/ May RF & May TP control
+(Used in the Paper)
+```{r,2(b) ESLL_Model_GW3 Event Study Regressions,display=F, echo=FALSE}
+    #    summary(ESLL_Model_GW3) #Model summary
+        ES_GS_Coef<-as.data.frame(ESLL_Model_GW3$coefficients)  #Model Coef  
+        ES_GS_Coef<-as.data.frame(ES_GS_Coef)
+        ES_GS_Coef$SE<-ESLL_Model_GW3$cse #Model CSE
+        ES_GS_Coef<-ES_GS_Coef[1:14,]
+        ES_GS_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_GS_Coef[15,]=c(0,0,-1)
+        colnames(ES_GS_Coef)<-c("GW_Coef","GW_SE","Time_To_Treatment")
+        
+        ES_GS_Coef$UB<-(ES_GS_Coef$GW_Coef)+1.96*(ES_GS_Coef$GW_SE)
+        ES_GS_Coef$LB<-(ES_GS_Coef$GW_Coef)-1.96*(ES_GS_Coef$GW_SE)
+        
+        ES_GS_Coef$before_after <- ifelse(ES_GS_Coef$Time_To_Treatment < 0,0,1)
+        ES_GS_Coef$Year <- ES_NDVI_Coef$Time_To_Treatment + 2009
+        
+        ggplot(ES_GS_Coef, aes(x = Year, y = GW_Coef, color=factor(before_after))) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +  
+          scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+          geom_smooth(data = subset(ES_GS_Coef, before_after == 0), aes(x = Year, y = GW_Coef), method = "lm", se = FALSE, linetype = "dashed", color = "#F8766D") +  # Trendline for before treatment
+  geom_smooth(data = subset(ES_GS_Coef, before_after == 1), aes(x = Year, y = GW_Coef), method = "lm", se = FALSE, linetype = "dashed", color = "#00BFC4") +  # Trendline for after treatment
+  theme_bw() +
+          geom_vline(xintercept = 2009, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("Estimate [Log (GW Level)])") +
+          #ggtitle("Log(GW Level): Event Study Plot")+
+          ggtitle("")+
+          geom_hline(yintercept=0)+ #Check Title
+          labs(color="")+
+          xlim(2001,2017)
+      ggsave("Figures_Tables/ESLL_GWL_RFTP_RL.png",
+             width = 8,
+             height = 4)  #Change File Name
+
+```
+
+#### A2(C). Event Study Models for AOD (DDD Models)
+```{r,2(c) AOD Event Study Regressions,display=F, echo=FALSE}
+        ES_DDD_Model_AOD1<- felm(AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                             +Period #single variable
+                             +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                             #No Control
+                             |State+Year #Fixed effects
+                             |0|State+Year, data = AOD_Filter_P)
+        ES_DDD_Model_AOD2<- felm(AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                             +Period #single variable
+                             +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                             +Rainfall_P #RF Control
+                             |State+Year #Fixed effects
+                             |0|State+Year, data = AOD_Filter_P)
+        ES_DDD_Model_AOD3<- felm(AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                                 +Period #single variable
+                                 +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                                 +Rainfall_P+Temp_P #RF & Temp Control
+                                 |State+Year #Fixed effects
+                                 |0|State+Year, data = AOD_Filter_P)
+
+        ESL_DDD_Model_AOD3<- felm(Log_AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                                       +Period #single variable
+                                       +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                                       +Rainfall_P+Temp_P #RF & Temp Control
+                                       |State+Year #Fixed effects
+                                       |0|State+Year, data = AOD_Filter_P)
+        ESLL_DDD_Model_AOD3<- felm(Log_AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                                        +Period #single variable
+                                        +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                                        +Log_Rainfall_P+Log_Temp_P #RF & Temp Control
+                                        |State+Year #Fixed effects
+                                        |0|State+Year, data = AOD_Filter_P)
+```
+
+A2(C1). AOD_M1. Plotting AOD TWFE Model w/o any control
+```{r,2(c) ES_DDD_Model_AOD1 Event Study Regressions,display=F, echo=FALSE}
+    #   summary(ES_DDD_Model_AOD1)
+        ES_AOD_Coef<-as.data.frame(ES_DDD_Model_AOD1$coefficients) #Check Model Coef    
+        ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+        ES_AOD_Coef$SE<-ES_DDD_Model_AOD1$cse #Check Model CSE
+        ES_AOD_Coef<-ES_AOD_Coef[1:14,]
+        ES_AOD_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_AOD_Coef[15,]=c(0,0,-1)
+        colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+        
+        ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+        ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+        
+        ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          xlab("Years before/after Policy") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          ylab("AOD") + #Check Log
+          ggtitle("Figure A2(C1): AOD (DDD Model): Event Study Plot (W/o Control)")+geom_hline(yintercept=0) #Check Title
+        #ggsave("14_ES_DDD_AOD_RL.png")   #Check Output file   
+
+```
+
+A2(C2). AOD_M2. Plotting AOD TWFE Model w/ P1+P2 RF 
+```{r,2(c) ES_DDD_Model_AOD2 Event Study Regressions,display=F, echo=FALSE}
+    #   summary(ES_DDD_Model_AOD2)
+        ES_AOD_Coef<-as.data.frame(ES_DDD_Model_AOD2$coefficients) #Check Model Coef    
+        ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+        ES_AOD_Coef$SE<-ES_DDD_Model_AOD2$cse #Check Model CSE
+        ES_AOD_Coef<-ES_AOD_Coef[1:14,]
+        ES_AOD_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_AOD_Coef[15,]=c(0,0,-1)
+        colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+        
+        ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+        ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+        
+        ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          xlab("Years before/after Policy") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          ylab("AOD") + #Check Log
+          ggtitle("Figure A2(C2): AOD (DDD Model): Event Study Plot (W/ P1 & P2 RF Control)")+geom_hline(yintercept=0) #Check Title
+        #ggsave("14_ES_DDD_AOD_RF_RL.png")   #Check Output file   
+
+```
+
+A2(C3). AOD_M3. Plotting AOD TWFE Model w/ P1+P2 RF & Temp
+```{r,2(c) ES_DDD_Model_AOD3 Event Study Regressions,display=F, echo=FALSE}
+    #   summary(ES_DDD_Model_AOD3)
+        ES_AOD_Coef<-as.data.frame(ES_DDD_Model_AOD3$coefficients) #Check Model Coef    
+        ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+        ES_AOD_Coef$SE<-ES_DDD_Model_AOD3$cse #Check Model CSE
+        ES_AOD_Coef<-ES_AOD_Coef[1:14,]
+        ES_AOD_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_AOD_Coef[15,]=c(0,0,-1)
+        colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+        
+        ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+        ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+        
+        ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          xlab("Years before/after Policy") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          ylab("AOD") + #Check Log
+          ggtitle("Figure A2(C3): AOD (DDD Model): Event Study Plot (W/ P1+P2 RF & Temp Control)")+geom_hline(yintercept=0) #Check Title
+        #ggsave("14_ES_DDD_AOD_RFTP_RL.png")   #Check Output file   
+
+```
+
+A2(C4). AOD_M4. Plotting Log(AOD)-linear control TWFE Model w/ P1+P2 RF & Temp
+```{r,2(c) ESL_DDD_Model_AOD3 Event Study Regressions,display=F, echo=FALSE}
+     #  summary(ESL_DDD_Model_AOD3)
+        ES_AOD_Coef<-as.data.frame(ESL_DDD_Model_AOD3$coefficients) #Check Model Coef    
+        ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+        ES_AOD_Coef$SE<-ESL_DDD_Model_AOD3$cse #Check Model CSE
+        ES_AOD_Coef<-ES_AOD_Coef[1:14,]
+        ES_AOD_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_AOD_Coef[15,]=c(0,0,-1)
+        colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+        
+        ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+        ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+        
+        ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef)) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          xlab("Years before/after Policy") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          ylab("Log(AOD)") + #Check Log
+          ggtitle("Figure A2(C4): Log(AOD) (DDD Model): Event Study Plot (W/ P1+P2 RF & Temp Control)")+geom_hline(yintercept=0) #Check Title
+        #ggsave("14_ESL_DDD_AOD_RFTP_RL.png")   #Check Output file   
+
+```
+
+##### A2(C5). AOD_M5. Plotting Log(AOD)-Log control TWFE Model w/ P1+P2 RF & Temp
+(Used in the Paper)
+```{r,2(c) ESLL_DDD_Model_AOD3 Event Study Regressions,display=F, echo=FALSE}
+    #   summary(ESLL_DDD_Model_AOD3)
+        ES_AOD_Coef<-as.data.frame(ESLL_DDD_Model_AOD3$coefficients) #Check Model Coef    
+        ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+        ES_AOD_Coef$SE<-ESLL_DDD_Model_AOD3$cse #Check Model CSE
+        ES_AOD_Coef<-ES_AOD_Coef[1:14,]
+        ES_AOD_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_AOD_Coef[15,]=c(0,0,-1)
+        colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+        
+        ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+        ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+        
+        ES_AOD_Coef$before_after <- ifelse(ES_AOD_Coef$Time_To_Treatment < 0,0,1)
+        ES_AOD_Coef$Year <- ES_AOD_Coef$Time_To_Treatment + 2009
+        
+        ggplot(ES_AOD_Coef, aes(x = Year, y = AOD_Coef, color=factor(before_after))) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+          geom_smooth(data = subset(ES_AOD_Coef, before_after == 0), aes(x = Year, y = AOD_Coef), method = "lm", se = F, linetype = "dashed", color = "#F8766D") +  # Trendline for before treatment
+   geom_smooth(data = subset(ES_AOD_Coef, before_after == 1), aes(x = Year, y = AOD_Coef), method = "lm", se = F, linetype = "dashed", color = "#00BFC4") +  # Trendline for after treatmenttheme_bw() +
+          xlab("Years before/after Policy") +
+          geom_vline(xintercept = 2009, linetype="dotted") +
+          ylab("Estimate [Log(AOD)]") + #Check Log
+          #ggtitle("Log(AOD) (DDD Model): Event Study Plot")+
+          ggtitle("")+
+          geom_hline(yintercept=0) + #Check Title
+          labs(color= "")+
+          xlim(2001,2017)
+        ggsave("Figures_Tables/ESLL_DDD_AOD_RFTP_RL.png",
+               width = 8,
+               height = 4)   #Check Output file   
+
+```
+
+### A3. Regressions (Log-Log Regressions)
+#### A3(A). DiD Regression for Log(NDVI)
+```{r,3(a) NDVI DiD Regressions,display=F,results='asis', echo=FALSE}
+  NDVI_Filter$Log_NDVI<-log(NDVI_Filter$NDVI)
+  LMN1_lm_DiD<- lm(Log_NDVI~Post+Tr_State+DiD, data = NDVI_Filter)
+  #summary(LMN1_lm_DiD)
+  
+  ## FELM DiD clustered std errors
+  LMN2_cler_DiD<- felm(Log_NDVI~Post+Tr_State+DiD|0|0|State, data = NDVI_Filter)
+  #summary(LMN2_cler_DiD)
+  
+  ## FELM DiD State clustered std errors & Fixed Effects
+  LMN3_fe_DiD<- felm(Log_NDVI~Post+Tr_State+DiD|State|0|State, data = NDVI_Filter)
+  #summary(LMN3_fe_DiD)
+  
+  ## FELM DiD State+Year clustered std errors & Fixed Effects
+  LMN4_fe_DiD<- felm(Log_NDVI~Post+Tr_State+DiD|State+Year|0|State+Year, data = NDVI_Filter)
+  #summary(LMN4_fe_DiD)
+   ## FELM DiD State+Year clustered std errors & Fixed Effects RF Control
+      LMN4_fe_DiD_RF<- felm(Log_NDVI~Post+Tr_State+DiD
+                            +Log_Rainfall_May+Log_Rainfall_June
+                            |State+Year|0|State+Year, data = NDVI_Filter)
+      #summary(LMN4_fe_DiD_RF)
+      
+      ## FELM DiD State+Year clustered std errors & Fixed Effects RF + Temp Control
+      LMN4_fe_DiD_RF_TP<- felm(Log_NDVI~Post+Tr_State+DiD
+                            +Log_Rainfall_May+Log_Rainfall_June+Log_Temp_June
+                            |State+Year|0|State+Year, data = NDVI_Filter)
+      #summary(LMN4_fe_DiD_RF_TP)
+      
+      # stargazer(LMN1_lm_DiD,LMN2_cler_DiD,LMN3_fe_DiD,LMN4_fe_DiD,LMN4_fe_DiD_RF,LMN4_fe_DiD_RF_TP, type = "html", 
+      #           #out=".\\14_Log_NDVI_Filter_DiD_Results_RF_TP.txt",
+      #           keep = 'DiD',
+      #           dep.var.labels.include=TRUE,title="Log(NDVI) (Month of June)",
+      #           dep.var.caption="",notes="",notes.append=TRUE,
+      #           column.labels=
+      #             c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE"),
+      #           add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes" ),
+      #                            c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes"),
+      #                            c("Clustered Std. Error", "","State","State","State+Year","State+Year","State+Year"),
+      #                            c("Control Factors", " ","","","","Log RF(May&June)","Log RF+TP(May&June)"))
+      #           ,notes.align="l",notes.label="")
+      
+```
+  Log(NDVI) DiD Regression Table
+```{r,3(a) NDVI DiD Regressions Table,display=F,results='asis', echo=FALSE}
+
+      stargazer(LMN1_lm_DiD,LMN2_cler_DiD,LMN3_fe_DiD,LMN4_fe_DiD,LMN4_fe_DiD_RF,LMN4_fe_DiD_RF_TP, type = "html", 
+                #out="Figures_Tables/14_Log_NDVI_Filter_DiD_Results_RF_TP.tex",
+                #keep = 'DiD',
+                dep.var.labels.include=TRUE,
+                title="Table A3(A): Log(GWL) DiD Regression (State-Level)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF(May&June)","Log RF+TP(May&June)"))
+                ,notes.align="l",notes.label="")
+```
+
+#### A3(B). DiD Regression for Log(GWL)
+```{r,3(b) GW DiD Regressions,display=F,results='asis', echo=FALSE}
+  LMG1_lm_DiD<- lm(Log_GW_Level~Post+Tr_State+DiD, data = GW_Filter)
+  #summary(LMG1_lm_DiD)
+  
+  ## FELM DiD clustered std errors
+  LMG2_cler_DiD<- felm(Log_GW_Level~Post+Tr_State+DiD
+                       |0
+                       |0|State, data = GW_Filter)
+  #summary(LMG2_cler_DiD)
+  
+  ## FELM DiD State clustered std errors & Fixed Effects
+  LMG3_fe_DiD<- felm(Log_GW_Level~Post+Tr_State+DiD
+                     |State
+                     |0|State, data = GW_Filter)
+  #summary(LMG3_fe_DiD)
+  
+  ## FELM DiD State+Year clustered std errors & Fixed Effects
+  LMG4_fe_DiD<- felm(Log_GW_Level~Post+Tr_State+DiD
+                     |State+Year
+                     |0|State+Year, data = GW_Filter)
+  #summary(LMG4_fe_DiD)
+
+  ## FELM DiD State+Year clustered std errors & Fixed Effects (RF Control)
+  LMG4_fe_DiD_RF<- felm(Log_GW_Level~Post+Tr_State+DiD
+                        +Log_Rainfall_May+Log_Rainfall_June
+                        |State+Year
+                        |0|State+Year, data = GW_Filter)
+  #summary(LMG4_fe_DiD_RF)
+      ####Higher rainfall is leading to higher depletion!!### 
+      
+  ## FELM DiD State+Year clustered std errors & Fixed Effects RF + Temp Control
+  LMG4_fe_DiD_RF_TP<- felm(Log_GW_Level~Post+Tr_State+DiD
+                               +Log_Rainfall_May+Log_Rainfall_June+Log_Temp_May+Log_Temp_June
+                               |State+Year
+                               |0|State+Year, data = GW_Filter)
+  #summary(LMG4_fe_DiD_RF_TP)
+      
+      # stargazer(LMG1_lm_DiD,LMG2_cler_DiD,LMG3_fe_DiD,LMG4_fe_DiD,LMG4_fe_DiD_RF,LMG4_fe_DiD_RF_TP, type = "html", 
+      #           #out=".\\14_Log_GWL_Filter_DiD_Results_RF_TP.txt",
+      #           keep = 'DiD',
+      #           dep.var.labels.include=TRUE,title="Log(GWL) (Month of May)",
+      #           dep.var.caption="",notes="",notes.append=TRUE,
+      #           column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE"),
+      #           add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes" ),
+      #                            c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes"),
+      #                            c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year"),
+      #                            c("Control Factors", " ","","","","Log RF (May)","Log RF+TP (May)"))
+      #           ,notes.align="l",notes.label="")
+```
+  Log(GW) DiD Regression Table
+```{r,3(b) GW DiD Regressions Table,display=F,results='asis', echo=FALSE}
+      stargazer(LMG1_lm_DiD,LMG2_cler_DiD,LMG3_fe_DiD,LMG4_fe_DiD,LMG4_fe_DiD_RF,LMG4_fe_DiD_RF_TP, type = "html", 
+                #out="Figures_Tables/14_Log_GWL_Filter_DiD_Results_RF_TP.tex",
+                #keep = 'DiD',
+                dep.var.labels.include=TRUE,
+                title="Table A3(B): Log(GWL) DiD Regression (State-Level)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF (May)","Log RF+TP (May)"))
+                ,notes.align="l",notes.label="")
+
+```
+
+#### A3(C). DDD Regression for Log(AOD)
+```{r,3(c) AOD DDD Regressions,display=F,results='asis', echo=FALSE}
+  #3D Models 
+  LMA1_DDD_lm<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                    |0
+                    |0|0, data=AOD_Filter_P)
+  #summary(LMA1_DDD_lm)
+  
+  #3D State Clustered Std Err
+  LMA2_DDD_CL<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                    |0
+                    |0|State, data=AOD_Filter_P)
+  #summary(LMA2_DDD_CL)
+  
+  #3D State FE, State Clustered Std Err
+  LMA3_DDD_FE<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                    |State
+                    |0|State, data=AOD_Filter_P)
+  #summary(LMA3_DDD_FE)
+  
+  #3D State+Year FE, State Clustered Std Err
+  LMA4_DDD_SY_FE<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                       |State+Year
+                       |0|State+Year, data=AOD_Filter_P)
+  #summary(LMA4_DDD_SY_FE)
+  
+  #3D State+Year FE, State Clustered Std Err RF Control
+  LMA4_DDD_SY_FE_RF<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                          +Log_Rainfall_P
+                          |State+Year
+                          |0|State+Year, data=AOD_Filter_P)
+  #summary(LMA4_DDD_SY_FE_RF)
+  
+  #3D State+Year FE, State Clustered Std Err RF & Temp Control
+  LMA4_DDD_SY_FE_RF_TP<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                             +Log_Rainfall_P+Log_Temp_P
+                             |State+Year
+                             |0|State+Year, data=AOD_Filter_P)
+  #summary(LMA4_DDD_SY_FE_RF_TP)
+#3D State+Year FE, State Clustered Std Err RF & Temp Control
+  AOD_Filter_P_2003<-AOD_Filter_P[AOD_Filter_P$Year %in% 2003:2016, ]
+ 
+  LMA4_DDD_SY_FE_RF_TP<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                             +Log_Rainfall_P+Log_Temp_P
+                             |State+Year
+                             |0|State+Year, data=AOD_Filter_P)
+
+  AOD_Filter_P_2003<-AOD_Filter_P[AOD_Filter_P$Year %in% 2003:2016, ]
+    LMA4_DDD_SY_FE_RF_TP_2003<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                             +Log_Rainfall_P+Log_Temp_P
+                             |State+Year
+                             |0|State+Year, data=AOD_Filter_P_2003)
+## Separate DiD regressions
+    AOD_Filter_ST_P1<-subset(AOD_Filter_P, Period==0)
+    AOD_Filter_ST_P2<-subset(AOD_Filter_P, Period==1)
+
+    LMA4_DDD_SY_FE_RF_TP_P1<-felm(Log_AOD~Tr_State+Post+DiD
+                             +Log_Rainfall_P+Log_Temp_P
+                             |State+Year
+                             |0|State+Year, data=AOD_Filter_ST_P1)
+    
+    LMA4_DDD_SY_FE_RF_TP_P2<-felm(Log_AOD~Tr_State+Post+DiD
+                             +Log_Rainfall_P+Log_Temp_P
+                             |State+Year
+                             |0|State+Year, data=AOD_Filter_ST_P2)
+  
+  #Reg Table for separate DiD regressions
+  
+      
+      # stargazer(LMA1_DDD_lm,LMA2_DDD_CL,LMA3_DDD_FE,LMA4_DDD_SY_FE,LMA4_DDD_SY_FE_RF,LMA4_DDD_SY_FE_RF_TP, type = "html", 
+  #               #out=".\\14_Log_AOD_Filter_DDD_Results_RF_TP.txt",
+  #               keep = 'DDD',
+  #               dep.var.labels.include=TRUE,title=" Log(AOD) (DDD)",
+  #               dep.var.caption="",notes="",notes.append=TRUE,
+  #               column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE"),
+  #               add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes" ),
+  #                                c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes"),
+  #                                c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year"),
+  #                                c("Control Factors", " ","","","","Log RF (P1&P2)","Log RF+TP (P1&P2)"))
+  #               ,notes.align="l",notes.label="")
+```
+  Log(AOD) DDD Regression Table
+```{r,3(c) AOD DDD Regressions Table,display=F,results='asis', echo=FALSE}
+        stargazer(LMA4_DDD_SY_FE_RF_TP_P1,LMA4_DDD_SY_FE_RF_TP_P2, LMA4_DDD_SY_FE_RF_TP,type = "html",
+            column.labels=c("Control Period","Treatment Period"),
+            title="Table A3(C1): Log(AOD) Period-wise Separate DiD Regression (State-Level)",
+            add.lines = list(c("State Fixed-Effect","Yes","Yes" ),
+                                 c("Year Fixed-Effect","Yes","Yes"),
+                                 c("Clustered Std. Error", "State+Year","State+Year"),
+                                 c("Control Factors", "Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"))
+                ,notes.align="l",notes.label="")  
+
+stargazer(LMA1_DDD_lm,LMA2_DDD_CL,LMA3_DDD_FE,LMA4_DDD_SY_FE,LMA4_DDD_SY_FE_RF,LMA4_DDD_SY_FE_RF_TP,LMA4_DDD_SY_FE_RF_TP_2003, type = "html", 
+                #out="Figures_Tables/14_Log_AOD_Filter_DDD_Results_RF_TP.tex",
+                #keep = 'DDD',
+                dep.var.labels.include=TRUE,
+                title="Table A3(C2): Log(AOD) Period-wise Separate DDD Regression (State-Level)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"))
+                ,notes.align="l",notes.label="")
+
+```
+
+
+### A4. Robustness Checks: Air Pollution Spillover to U.P. and Bihar
+Here I am excluding U.P. and Bihar states from the control group due to spillover of pollutant transfer. The Event study and regression is re-estimated with 2 less states for control.
+```{R, (4) Subset data, include = T, echo=FALSE}
+#Load panel data prepared for 14 states for 15 years the 
+unique(GW_Filter$State)
+State_list_reg_RC<-c("Andhra Pradesh","Chhattisgarh","Gujarat","Haryana",
+                      "Jharkhand","Karnataka","Kerala","Madhya Pradesh",
+                      "Maharashtra","Orissa","Punjab",
+                      "Rajasthan","Tamilnadu","Telangana","West Bengal")
+# State_list_reg_RC<-c("Andhra Pradesh",
+#                   "Chhattisgarh","Gujarat","Haryana",
+#                   "Jharkhand","Karnataka","Madhya Pradesh",
+#                   "Maharashtra","Punjab","Rajasthan","Tamilnadu",
+#                   "Telangana")
+GW_Filter_RC<-GW_Filter[GW_Filter$State %in% State_list_reg_RC, ]
+NDVI_Filter_RC<-NDVI_Filter[NDVI_Filter$State %in% State_list_reg_RC, ]
+AOD_Filter_P_RC<-AOD_Filter_P[AOD_Filter_P$State %in% State_list_reg_RC, ]
+```
+#### A4(A). Event Study for 12 States
+
+A4(A1). NDVI_M5. Plotting Log(NDVI)-Log Control TWFE Model w/ May and June RF, June Temp control (12 States)
+```{r,4(a) ESLL_NDVI3 12 States Event Study Regressions,display=F, echo=FALSE}
+    ESLL_NDVI3_RC<-  felm(Log_NDVI~relevel(factor(Time_To_Treatment*Tr_State),ref = "-1")
+                             +Log_Rainfall_May+Log_Rainfall_June+Log_Temp_June
+                             |Year+State|0|State+Year, data = NDVI_Filter_RC)
+   
+# summary(ESLL_NDVI3_RC)
+        ES_NDVI_Coef<-as.data.frame(ESLL_NDVI3_RC$coefficients) #Model Coef   
+        ES_NDVI_Coef<-as.data.frame(ES_NDVI_Coef)
+        ES_NDVI_Coef$SE<-ESLL_NDVI3_RC$cse #Model CSE
+        ES_NDVI_Coef<-ES_NDVI_Coef[1:14,]
+        ES_NDVI_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_NDVI_Coef[15,]=c(0,0,-1)
+        colnames(ES_NDVI_Coef)<-c("NDVI_Coef","NDVI_SE","Time_To_Treatment")
+        
+        ES_NDVI_Coef$UB<-(ES_NDVI_Coef$NDVI_Coef)+1.96*(ES_NDVI_Coef$NDVI_SE)
+        ES_NDVI_Coef$LB<-(ES_NDVI_Coef$NDVI_Coef)-1.96*(ES_NDVI_Coef$NDVI_SE)
+        
+        ES_NDVI_Coef$before_after <- ifelse(ES_NDVI_Coef$Time_To_Treatment < 0,0,1)
+        ggplot(ES_NDVI_Coef, aes(x = Time_To_Treatment, y = NDVI_Coef, color=factor(before_after))) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +  
+          scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+          theme_bw() + 
+          labs(color="")+
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("Estimate [Log(NDVI)]") +
+          ggtitle("Figure A4(A1):Log(NDVI): Event Study Plot (RC)")+
+          #ggtitle("")+
+          geom_hline(yintercept=0)
+     ggsave("Figures_Tables/ESLL_NDVI_RFTP_RL_RC.png")
+```
+
+A4(A2). GWL_M5. Plotting Log(GWL)-Log control TWFE Model w/ May RF & May TP control (12 States)
+```{r,4(a) ESLL_Model_GW3 Event Study Regressions,display=F, echo=FALSE}
+     ESLL_GW3_RC<- felm(Log_GW_Level~relevel(factor(Time_To_Treatment*Tr_State),ref="-1")
+                        +Log_Rainfall_May+Log_Rainfall_June+Log_Temp_May+Log_Temp_June
+                        |State+Year|0|State+Year, data = GW_Filter_RC)
+   #    summary(ESLL_GW3_RC) #Model summary
+        ES_GS_Coef<-as.data.frame(ESLL_GW3_RC$coefficients)  #Model Coef  
+        ES_GS_Coef<-as.data.frame(ES_GS_Coef)
+        ES_GS_Coef$SE<-ESLL_GW3_RC$cse #Model CSE
+        ES_GS_Coef<-ES_GS_Coef[1:14,]
+        ES_GS_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_GS_Coef[15,]=c(0,0,-1)
+        colnames(ES_GS_Coef)<-c("GW_Coef","GW_SE","Time_To_Treatment")
+        
+        ES_GS_Coef$UB<-(ES_GS_Coef$GW_Coef)+1.96*(ES_GS_Coef$GW_SE)
+        ES_GS_Coef$LB<-(ES_GS_Coef$GW_Coef)-1.96*(ES_GS_Coef$GW_SE)
+        
+        ES_GS_Coef$before_after <- ifelse(ES_GS_Coef$Time_To_Treatment < 0,0,1)
+        ggplot(ES_GS_Coef, aes(x = Time_To_Treatment, y = GW_Coef, color=factor(before_after))) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+          theme_bw() + 
+          labs(color="")+
+          geom_vline(xintercept = 0, linetype="dotted") +
+          xlab("Years before/after Policy") +
+          ylab("Estimate [Log (GW Level)]") +
+          ggtitle("Figure A4(A2):Log(GW Level): Event Study Plot")+
+          #ggtitle("")+
+          geom_hline(yintercept=0)
+            #Title
+       ggsave("Figures_Tables/ESLL_GWL_RFTP_RL_RC.png")  #Change File Name
+
+```
+
+A4(A3). AOD_M5. Plotting Log(AOD)-Log control TWFE Model w/ P1+P2 RF & Temp 12 (12 States)
+```{r,4(a) ESLL_DDD_Model_AOD3 Event Study Regressions,display=F, echo=FALSE}
+        ESLL_DDD_AOD3_RC<- felm(Log_AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                                        +Period #single variable
+                                        +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                                        +Log_Rainfall_P+Log_Temp_P #RF & Temp Control
+                                        |State+Year #Fixed effects
+                                        |0|State+Year, data = AOD_Filter_P_RC)
+
+    #   summary(ESLL_DDD_AOD3_RC)
+        ES_AOD_Coef<-as.data.frame(ESLL_DDD_AOD3_RC$coefficients) #Check Model Coef    
+        ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+        ES_AOD_Coef$SE<-ESLL_DDD_AOD3_RC$cse #Check Model CSE
+        ES_AOD_Coef<-ES_AOD_Coef[1:14,]
+        ES_AOD_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+        ES_AOD_Coef[15,]=c(0,0,-1)
+        colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+        
+        ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+        ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+        
+        ES_AOD_Coef$before_after <- ifelse(ES_AOD_Coef$Time_To_Treatment < 0,0,1)
+        ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef, color=factor(before_after))) +
+          geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+          geom_line() +
+          geom_point() +
+          #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+          scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+          theme_bw() + 
+          labs(color="")+
+          xlab("Years before/after Policy") +
+          geom_vline(xintercept = 0, linetype="dotted") +
+          ylab("Estimate [Log(AOD)]") + #Check Log
+          ggtitle("Figure A4(A3):Log(AOD) (DDD Model): Event Study Plot")+
+          #ggtitle("")+
+          geom_hline(yintercept=0) #Check Title
+         ggsave("Figures_Tables/ESLL_DDD_AOD_RFTP_RL_RC.png")   #Check Output file   
+
+```
+
+#### A4(B). DiD and DDD Regression Estimates for 12 States
+
+A4(B1). Log(NDVI) DiD Regression Table (W/ Robustness Check)
+```{r,4(b) NDVI DiD Regressions RC,display=F,results='asis', echo=FALSE}
+      ## FELM DiD State+Year clustered std errors & Fixed Effects RF + Temp Control
+      LMN4_fe_DiD_RF_TP_RC<- felm(Log_NDVI~Post+Tr_State+DiD
+                            +Log_Rainfall_May+Log_Rainfall_June+Log_Temp_June
+                            |State+Year|0|State+Year, data = NDVI_Filter_RC)
+      #summary(LMN4_fe_DiD_RF_TP)
+      
+      stargazer(LMN1_lm_DiD,LMN2_cler_DiD,LMN3_fe_DiD,LMN4_fe_DiD,LMN4_fe_DiD_RF,LMN4_fe_DiD_RF_TP,LMN4_fe_DiD_RF_TP_RC, type = "html", 
+                #out=".\\12_Log_NDVI_Filter_DiD_Results_RF_TP.txt",
+                keep = 'DiD',
+                dep.var.labels.include=TRUE,title="Table A4(B1): Log(NDVI) (Month of June)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=
+                  c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", "","State","State","State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF(May&June)","Log RF+TP(May&June)","Log RF+TP(May&June)"),
+                                 c("Control States","15","15","15","15","15","15","13"))
+                ,notes.align="l",notes.label="")
+      
+```
+
+A4(B2). Log(GW) DiD Regression Table (W/ Robustness Check)
+```{r,4(b) GW DiD Regressions RC,display=F,results='asis', echo=FALSE}
+  LMG4_fe_DiD_RF_TP_RC<- felm(Log_GW_Level~Post+Tr_State+DiD
+                               +Rainfall_May+Log_Temp_May
+                               |State+Year
+                               |0|State+Year, data = GW_Filter_RC)
+      stargazer(LMG1_lm_DiD,LMG2_cler_DiD,LMG3_fe_DiD,LMG4_fe_DiD,LMG4_fe_DiD_RF,LMG4_fe_DiD_RF_TP,LMG4_fe_DiD_RF_TP_RC, type = "html", 
+                #out=".\\12_Log_GWL_Filter_DiD_Results_RF_TP.txt",
+                keep = 'DiD',
+                dep.var.labels.include=TRUE,title="Table A4(B2): Log(GWL) (Pre-Monsoon)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF (May)","Log RF+TP (May)","Log RF+TP (May)"),
+                                   c("Control States","14","14","14","14","14","14","12"))
+                ,notes.align="l",notes.label="")
+
+```
+
+A4(B3). Log(AOD) DDD Regression Table (W/ Robustness Check)
+```{r,4(b) AOD DiD Regressions RC,display=F,results='asis', echo=FALSE}
+  #3D State+Year FE, State Clustered Std Err RF & Temp Control
+  LMA4_DDD_SY_FE_RF_TP_RC<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                             +Log_Rainfall_P+Log_Temp_P
+                             |State+Year
+                             |0|State+Year, data=AOD_Filter_P_RC)
+  #summary(LMA4_DDD_SY_FE_RF_TP_RC)
+#Dropping year 2003
+AOD_Filter_P_RC_2003<-AOD_Filter_P_RC[AOD_Filter_P_RC$Year %in% 2003:2016,]
+LMA4_DDD_SY_FE_RF_TP_RC_2003<-felm(Log_AOD~Tr_State+Post+Period+DiD+Period*Post+Tr_State*Period+DDD
+                             +Log_Rainfall_P+Log_Temp_P
+                             |State+Year
+                             |0|State+Year, data=AOD_Filter_P_RC_2003)
+  stargazer(LMA1_DDD_lm,LMA2_DDD_CL,LMA3_DDD_FE,LMA4_DDD_SY_FE,LMA4_DDD_SY_FE_RF,LMA4_DDD_SY_FE_RF_TP,LMA4_DDD_SY_FE_RF_TP_RC, type = "html", 
+                #out="Figures_Tables/12_Log_AOD_Filter_DDD_Results_RF_TP.doc",
+                keep = 'DDD',
+                dep.var.labels.include=TRUE,title="Table A4(B3):  Log(AOD) (DDD)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"), 
+                                 c("Control States","15","15","15","15","15","15","13"))
+                ,notes.align="l",notes.label="")
+
+```
+
+A4(C). Exporting the LaTeX tables (Make Changes)
+```{r,4(c) All 3 Latex tables,display=F,results='asis', include=FALSE, echo=FALSE}
+#NDVI
+stargazer(LMN1_lm_DiD,LMN2_cler_DiD,LMN3_fe_DiD,LMN4_fe_DiD,LMN4_fe_DiD_RF,LMN4_fe_DiD_RF_TP,LMN4_fe_DiD_RF_TP_RC, type = "latex", 
+                out="Figures_Tables/Tab 1 Log_NDVI_Reg.tex",
+                keep = 'DiD',
+                dep.var.labels.include=TRUE,title="Log(NDVI) (Month of June)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=
+                  c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", "","State","State","State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF(May&June)","Log RF+TP(May&June)","Log RF+TP(May&June)"),
+                                 c("Control States","15","15","15","15","15","15","13"))
+                ,notes.align="l",notes.label="")
+#GWL
+stargazer(LMG1_lm_DiD,LMG2_cler_DiD,LMG3_fe_DiD,LMG4_fe_DiD,LMG4_fe_DiD_RF,LMG4_fe_DiD_RF_TP,LMG4_fe_DiD_RF_TP_RC, type = "latex", 
+                out="Figures_Tables/Tab 2 Log_GW_Reg.tex",
+                keep = 'DiD',
+                dep.var.labels.include=TRUE,title="Log(GWL) (Pre-Monsoon)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF (May)","Log RF+TP (May)","Log RF+TP (May)"),
+                                   c("Control States","14","14","14","14","14","14","12"))
+                ,notes.align="l",notes.label="")
+#AOD
+stargazer(LMA1_DDD_lm,LMA2_DDD_CL,LMA3_DDD_FE,LMA4_DDD_SY_FE,LMA4_DDD_SY_FE_RF,LMA4_DDD_SY_FE_RF_TP,LMA4_DDD_SY_FE_RF_TP_RC, type = "latex", 
+                out="Figures_Tables/Tab 3 Log_AOD_Reg.tex",
+                keep = 'DDD',
+                dep.var.labels.include=TRUE,title=" Log(AOD) (DDD)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("No FE","Clt. Strd. Err","State FE","State+Year FE","State+Year FE","State+Year FE","State+Year FE"),
+                add.lines = list(c("State Fixed-Effect", "No","No","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "No","No","No","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", " ","State","State","State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", " ","","","","Log RF (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"), 
+                                 c("Control States","15","15","15","15","15","15","13"))
+                ,notes.align="l",notes.label="")
+```
+
+
+
+### A5. Synthetic Control for GW Level DiD Estimation
+(1)Combined Punjab and Haryana for treatment 
+(2)Andhra Pradesh and Telangana data is pro-rated for synthetic control pre-2014 period as the erstwhile state of Andhra Pradesh was bifurcated into two states in 2014.
+
+#### A5(A). Synthetic Control for Groundwater
+```{r,5(a) Synthetic Control,display=F,  results='hide', echo=FALSE}
+GW_Synth_Ctrl_Area<-read.csv("0_Final_Data_GWAP/Synth_GW_05_13.csv")
+
+#GW_Synth_Ctrl_Area<-read.csv("Synth_GW_Filter15_SC_05_13_RJ_2004.csv") Unbalanced Panel: Synth COntrol Does not work: Missing Rj:2004 data
+
+colnames(GW_Synth_Ctrl_Area)[1]<-"State"
+
+
+# Area of Punjab: 50362 Haryana: 44212 : Weighted Averages:{GW, RF,Temp| SOD}:Sum{GSDP,AgGDP,RiceT,RiceK,Population}
+
+
+dataprep_out <- dataprep(
+    foo = GW_Synth_Ctrl_Area, ## data
+    predictors = c("Rainfall_May", "Temp_May","Rainfall_June","Temp_June"), ## predictor variables (all pre-treatment periods)
+    predictors.op = "mean", ## functional form
+    time.predictors.prior = 2002:2008, ## define pre-treatment period
+    special.predictors = list( ## special predictors 
+      list("GW_Level", c(2002:2008), "mean"), ## outcome variable averages from 2002-2008
+      list("Population", 2006, "mean"), ## Population in 2006 (Mean of 2001 and 2011)
+      list("SoD", 2004, "mean"), ## GW SOD in 2004
+      list("GSDP", 2004:2008, "mean"), ## mean GSDP in 2004-2008
+      list("AgGDP", 2004:2008, "mean"), ## mean agGDP in 2004-2008
+      list("RiceK", 2004:2008, "mean")), ## mean Rice cultivation Area in 2004:2008
+      #list("Factories", 2004:2008, "mean")), ##No of factories in the states
+    dependent = "GW_Level", ## outcome variable
+    unit.variable = "St_Code", ## unit variable
+    unit.names.variable = "State", ## unit names
+    time.variable = "Year", ## time variable 
+    treatment.identifier = 0, ## treated state
+    controls.identifier = c(1:14), ## control states
+    time.optimize.ssr = 2002:2008,  ## time to optimize SSR
+    time.plot = 2002:2016 ## time to plot
+  )  
+
+  #Preparing synth data
+  synth_out_GW <- synth(data.prep.obj = dataprep_out)  
+  
+  #Preparing synth tables
+  synth_tables<-synth.tab(dataprep.res = dataprep_out, synth.res = synth_out_GW)
+  names(synth_tables)
+        Synth_tab_pred<-synth_tables$tab.pred
+        Synth_tab_v<-synth_tables$tab.v
+        Synth_tab_loss<-synth_tables$tab.loss
+  Synth_tab_pred
+  Synth_tab_v
+  Synth_tab_loss
+  
+  #Save and load synth data
+  save(synth_out_GW, file='synth_out_GW.RData')
+  load('synth_out_GW.RData')
+  
+  ## plot outcome for treated and synthetic control
+  path.plot(synth_out_GW, dataprep_out, Ylab = "Figure A5(A1): Groundwater Level (Below Ground)", Xlab = "Year", Main = "Outcome for Treated and Synthetic Control")
+  
+  ## plot difference between treated and synthetic control
+  gaps.plot(synth_out_GW, dataprep_out, Ylab = "Figure A5(A2): Groundwater Level Difference", Xlab = "Year", Main = "Difference: Treated and Synthetic Control")
+  
+  ## check out weights
+  Weights<-synth_out_GW$solution.w
+  Weights_Major<-synth_out_GW$solution.w[synth_out_GW$solution.w[,1]>.01]
+  Weights
+  Weights_Major
+  
+  ## generate placebos
+  p_load(SCtools)
+  placebos <- generate.placebos(dataprep_out, synth_out_GW, Sigf.ipop = 3)
+
+  ## save and load
+  save(placebos, file='placebos.RData')
+  load('placebos.RData')
+  
+  ## check out placebo plot
+  
+  SCtools::plot_placebos(placebos,discard.extreme = F, title="Figure A5(A3)")
+  SCtools::plot_placebos(placebos,discard.extreme = T, title="Figure A5(A4)")
+  
+  ## look at MSPE ratios with and without outliers
+  mspe.plot(placebos, discard.extreme = FALSE, plot.hist = TRUE, title="Figure A5(A5)")
+  mspe.plot(placebos, discard.extreme = TRUE, mspe.limit = 5, plot.hist = TRUE, title="Figure A5(A6)")
+
+```
+P.S: Unfortunately the synthetic control plot commands are not conducive for making colorful illustrations like ggplot2. Hence, the B/W charts are used in for synthetic control analysis. 
+
+#### A5(B). Backdating Synthetic Control Prediction to 2007 
+```{r,5(b) Synthetic Control Back Dating 2007,display=F,  results='hide', echo=FALSE}
+###Backdating to 2007 for robustness checks
+  dataprep_out_BD <- dataprep(
+    foo = GW_Synth_Ctrl_Area, ## data
+    predictors = c("Rainfall_May", "Temp_May","Rainfall_June","Temp_June"), ## predictor variables (all pre-treatment periods)
+    predictors.op = "mean", ## functional form
+    time.predictors.prior = 2002:2007, ## define pre-treatment period
+    special.predictors = list( ## special predictors 
+      list("GW_Level", c(2002:2007), "mean"), ## outcome variable averages from 2002-2007
+      list("Population", 2006, "mean"), ## Population in 2006 (Mean of 2001 and 2011)
+      list("SoD", 2004, "mean"), ## GW SOD in 2004
+      list("GSDP", 2004:2007, "mean"), ## mean GSDP in 2004-2007
+      list("AgGDP", 2004:2007, "mean"), ## mean agGDP in 2004-2007
+      list("RiceK", 2004:2007, "mean")), ## mean Rice cultivation Area in 2004:2007
+      #list("Factories", 2004:2007, "mean")), ##No of factories in the states
+    dependent = "GW_Level", ## outcome variable
+    unit.variable = "St_Code", ## unit variable
+    unit.names.variable = "State", ## unit names
+    time.variable = "Year", ## time variable 
+    treatment.identifier = 0, ## treated state
+    controls.identifier = c(1:14), ## control states
+    time.optimize.ssr = 2002:2007,  ## time to optimize SSR
+    time.plot = 2002:2016 ## time to plot
+  )  
+  
+  #Preparing synth data
+  synth_out_GW_BD <- synth(data.prep.obj = dataprep_out_BD)  
+  
+  #Preparing synth tables
+  synth_tables_BD<-synth.tab(dataprep.res = dataprep_out_BD, synth.res = synth_out_GW_BD)
+  names(synth_tables_BD)
+        Synth_tab_pred_BD<-synth_tables_BD$tab.pred
+        Synth_tab_v_BD<-synth_tables_BD$tab.v
+        Synth_tab_loss_BD<-synth_tables_BD$tab_BD.loss
+  Synth_tab_pred_BD
+  Synth_tab_v_BD
+  Synth_tab_loss_BD
+
+  #Save and load synth data
+  save(synth_out_GW_BD, file='synth_out_GW_BD.RData')
+  load('synth_out_GW_BD.RData')
+  
+  path.plot(synth_out_GW_BD, dataprep_out_BD, Ylab = "Groundwater Level (Below Ground)", Xlab = "Year", Main = "Figure A5(B1): Outcome for Treated and Synthetic Control (Backdating by 1 Year)")
+  
+  ## plot difference between treated and synthetic control
+  gaps.plot(synth_out_GW_BD, dataprep_out_BD, Ylab = "Groundwater Level Difference", Xlab = "Year", Main = "Figure A5(B2): Difference: Treated and Synthetic Control (Backdating by 1 Year)")
+  
+  ## check out weights
+  Weights_BD<-synth_out_GW_BD$solution.w
+  Weights_BD_Major<-synth_out_GW_BD$solution.w[synth_out_GW_BD$solution.w[,1]>.01]
+  Weights_BD
+  Weights_BD_Major
+  
+  ## generate placebos
+  placebos_BD <- generate.placebos(dataprep_out_BD, synth_out_GW_BD, Sigf.ipop = 3)
+
+  ## save and load
+  save(placebos_BD, file='placebos_BD.RData')
+  load('placebos_BD.RData')
+  
+  ## check out placebo plot
+  SCtools::plot_placebos(placebos_BD,discard.extreme = F, title="Figure A5(B3)")
+  SCtools::plot_placebos(placebos_BD,discard.extreme = T, title="Figure A5(B4)")
+  
+  ## look at MSPE ratios with and without outliers
+  mspe.plot(placebos_BD, discard.extreme = FALSE, plot.hist = TRUE, title="Figure A5(B5)")
+  mspe.plot(placebos_BD, discard.extreme = TRUE, mspe.limit = 5, plot.hist = TRUE, title="Figure A5(B6)")
+#Not able to run without outliers as no data is left if I discard extremes
+```
+
+#### A5(C). Backdating Synthetic Control Prediction to 2006
+```{r,5(C) Synthetic Control Back Dating 2006,display=F, results='hide', echo=FALSE}
+###Backdating to 2007 for robustness checks
+  dataprep_out_BD2 <- dataprep(
+    foo = GW_Synth_Ctrl_Area, ## data
+    predictors = c("Rainfall_May", "Temp_May","Rainfall_June","Temp_June"), ## predictor variables (all pre-treatment periods)
+    predictors.op = "mean", ## functional form
+    time.predictors.prior = 2002:2006, ## define pre-treatment period
+    special.predictors = list( ## special predictors 
+      list("GW_Level", c(2002:2006), "mean"), ## outcome variable averages from 2002-2007
+      list("Population", 2006, "mean"), ## Population in 2006 (Mean of 2001 and 2011)
+      list("SoD", 2004, "mean"), ## GW SOD in 2004
+      list("GSDP", 2004:2006, "mean"), ## mean GSDP in 2004-2006
+      list("AgGDP", 2004:2006, "mean"), ## mean agGDP in 2004-2006
+      list("RiceK", 2004:2006, "mean")), ## mean Rice cultivation Area in 2004:2006
+      #list("Factories", 2004:2006, "mean")), ##No of factories in the states
+    dependent = "GW_Level", ## outcome variable
+    unit.variable = "St_Code", ## unit variable
+    unit.names.variable = "State", ## unit names
+    time.variable = "Year", ## time variable 
+    treatment.identifier = 0, ## treated state
+    controls.identifier = c(1:14), ## control states
+    time.optimize.ssr = 2002:2006,  ## time to optimize SSR
+    time.plot = 2002:2016 ## time to plot
+  )  
+  
+  #Preparing synth data
+  synth_out_GW_BD2 <- synth(data.prep.obj = dataprep_out_BD2)  
+  
+  #Preparing synth tables
+  synth_tables_BD2<-synth.tab(dataprep.res = dataprep_out_BD2, synth.res = synth_out_GW_BD2)
+  names(synth_tables_BD2)
+        Synth_tab_pred_BD2<-synth_tables_BD2$tab.pred
+        Synth_tab_v_BD2<-synth_tables_BD2$tab.v
+        Synth_tab_loss_BD2<-synth_tables_BD2$tab_BD2.loss
+  Synth_tab_pred_BD2
+  Synth_tab_v_BD2
+  Synth_tab_loss_BD2
+ 
+  #Save and load synth data
+  save(synth_out_GW_BD2, file='synth_out_GW_BD2.RData')
+  load('synth_out_GW_BD2.RData')
+  
+  path.plot(synth_out_GW_BD2, dataprep_out_BD2, Ylab = "Groundwater Level (Below Ground)", Xlab = "Year", Main = "Figure A5(C1): Outcome for Treated and Synthetic Control (Backdating by 2 Years)")
+  
+  ## plot difference between treated and synthetic control
+  gaps.plot(synth_out_GW_BD2, dataprep_out_BD2, Ylab = "Groundwater Level Difference", Xlab = "Year", Main = "Figure A5(C2): Difference: Treated and Synthetic Control (Backdating by 2 Years)")
+   
+  ## check out weights
+  Weights_BD2<-synth_out_GW_BD2$solution.w
+  Weights_BD2_Major<-synth_out_GW_BD2$solution.w[synth_out_GW_BD2$solution.w[,1]>.01]
+  Weights_BD2
+  Weights_BD2_Major
+  
+  ## generate placebos
+  placebos_BD2 <- generate.placebos(dataprep_out_BD2, synth_out_GW_BD2, Sigf.ipop = 3)
+
+  ## save and load
+  save(placebos_BD2, file='placebos_BD2.RData')
+  load('placebos_BD2.RData')
+  
+  ## check out placebo plot
+  SCtools::plot_placebos(placebos_BD2,discard.extreme = F, title="Figure A5(C3)")
+  SCtools::plot_placebos(placebos_BD2,discard.extreme = T, title="Figure A5(C4)")
+#Not able to run without outliers as no data is left if I discard extremes
+  
+  ## look at MSPE ratios with and without outliers
+  mspe.plot(placebos_BD2, discard.extreme = FALSE, plot.hist = TRUE, title="Figure A5(C5)")
+  mspe.plot(placebos_BD2, discard.extreme = TRUE, mspe.limit = 5, plot.hist = TRUE, title="Figure A5(C6)")
+#Not able to run without outliers as no data is left if I discard extremes
+```
+
+#### A5(D). Compiling Weights from 5(A-C)
+```{r,5 Synthetic Control Weights,display=F, echo=FALSE}
+## Control States Weights
+p_load("kableExtra")
+Weights_SC<-GW_Synth_Ctrl_Area %>%
+            filter(St_Code != 0) %>%
+            distinct(State) %>%
+            as.data.frame()
+
+  Weights_SC<-cbind(Weights_SC,format(round(Weights, 3)))
+  Weights_SC<-cbind(Weights_SC,format(round(Weights_BD, 3)))
+  Weights_SC<-cbind(Weights_SC,format(round(Weights_BD2, 3)))
+  colnames(Weights_SC)<-c("Control State","Weights","Weights (Backdating 1 Yr)","Weights (Backdating 2 Yr)")
+Weights_SC %>%
+  kbl(caption = "Table 5(D1): Control States Weights for Synthetic Control") %>%
+  kable_classic_2(full_width = F)
+
+
+  #Exporting States Weights
+  tab4<-xtable(Weights_SC, caption= "Summary of Weights Assigned for Synthetic Control", 
+  align=c("|c","|c","|c","|c","|c|"))
+  write.table(tab4,file="Figures_Tables/Tab_4_SC_Weights.tex", quote=FALSE, eol="\\\\\n", sep=" & ")
+
+## Predictor Summary
+  Preds_SC<-Synth_tab_pred
+  #Preds_SC<-cbind(Preds_SC,as.data.frame(Synth_tab_pred))
+  Preds_SC<-cbind(Preds_SC,as.data.frame(Synth_tab_pred_BD))
+  Preds_SC<-cbind(Preds_SC,as.data.frame(Synth_tab_pred_BD2))
+  colnames(Preds_SC)<-c("Treated","Synthetic","Sample Mean","Treated (BD1)","Synthetic (BD1)","Sample Mean (BD1)","Treated (BD2)","Synthetic (BD2)","Sample Mean (BD2)")
+rownames(Preds_SC)<-c("Rainfall(May)","Temperature (May)","Rainfall(June)","Temperature (June)", "GW_Level","Population","SoD","GSDP","AgGDP","Rice Cultivation Area(Kharif)")
+  
+  #html table
+  Preds_SC %>%
+  kbl(caption = "Table 5(D2): Predictor Summary") %>%
+  kable_classic_2(full_width = F)
+
+  #Exporting Predictors Summary
+  tab5<-xtable(Preds_SC, caption= "Summary of Predictors for Synthetic Control", 
+  align=c("|c","|c","|c","|c","|c","|c","|c","|c","|c","|c|"))
+  write.table(tab5,file="Figures_Tables/Tab_5_SC_Preds.tex", quote=FALSE, eol="\\\\\n", sep=" & ")
+
+## Variable Weights
+  Var_Weights_SC<-as.data.frame(Synth_tab_v)
+  Var_Weights_SC<-cbind(Var_Weights_SC,Synth_tab_v_BD)
+  Var_Weights_SC<-cbind(Var_Weights_SC,Synth_tab_v_BD2)
+  Var_Weights_SC<-as.matrix(Var_Weights_SC)
+  colnames(Var_Weights_SC)<-c("Weights","Weights (Backdating 1 Yr)","Weights (Backdating 2 Yr)")
+  rownames(Var_Weights_SC)<-c("Rainfall(May)","Temperature (May)","Rainfall(June)","Temperature (June)", "GW_Level","Population","SoD","GSDP","AgGDP","Rice Cultivation Area(Kharif)")
+
+  #html table
+  Var_Weights_SC %>%
+  kbl(caption = "Table 5(D3): Predictor Variable Weights") %>%
+  kable_classic_2(full_width = F)
+
+  #Exporting Variable Weights
+  tab6<-xtable(Var_Weights_SC, caption= "Summary of variable Weights for Synthetic Control", 
+  align=c("|c","|c","|c","|c|"))
+  capture.output(tab6, file = "Figures_Tables/Tab_6_SC_Var_Weights.txt")
+
+```
+
+### A6. District Level Analysis for AOD
+```{r,6 District Level Analysis for AOD ,results='asis',display=F, echo=FALSE}
+
+########################## Analysis: Copy to RMD ###############################
+dt<-read.csv("./0_Final_Data_GWAP/Dist_AT_AVG_Period_17States.csv")
+
+#Summary Table
+    dat_AOD_Dist<-dt%>%
+      group_by(Post,Tr_State,Period)%>%
+      summarise(
+        Count = n(),
+        Mean = format(round(mean(AOD), 2), nsmall = 2),
+        Min = format(round(min(AOD), 2), nsmall = 2),
+        Max = format(round(max(AOD), 2), nsmall = 2),
+        SD = format(round(sd(AOD), 2), nsmall = 2)
+      )
+    dat_AOD_Dist<-as.data.frame(dat_AOD_Dist)
+    htmlTable(dat_AOD_Dist, 
+              ctable= c("solid","double"),
+              caption="Table A6(A): AOD Level Summary Statistics (District-Level Data)")
+      
+  # Regression Analysis #
+  dt$Rainfall<-ifelse(dt$Period==0,dt$Rainfall_P1,dt$Rainfall_P2)
+  dt$Temp<-ifelse(dt$Period==0,dt$Temp_P1,dt$Temp_P2)
+  dt$DDD<-dt$Period_Post_Tr_State
+# trend plots Section 1
+  library(ggplot2)
+  dt$States<-ifelse(dt$Tr_State==1,"Treat","Control")
+  dt$States_P<-paste0(dt$States,":P",dt$Period+1)
+  AOD_Filter_P1<-subset(dt,dt$Period==0)
+  AOD_Filter_P2<-subset(dt,dt$Period==1)
+  
+  # gg_AOD_S = ggplot(AOD_Filter_P2, aes(y=Log_AOD, x=Year, color= State)) +
+  #   geom_line() +
+  #   geom_vline(xintercept=2009, linetype = "dotted") +
+  #   theme_bw() +
+  #   ggtitle("Log(AOD) [All States: Period 2]")+
+  #   ylab("Log(AOD)") 
+  # gg_AOD_S
+  # ggsave("Figures_Tables/AOD_Trend_AllS_P2.png")
+  # #Reason Why we can not use the Synthetic Control for the AOD Data. Haryana & Punjab are the Outliers
+  
+  gdat_AOD_P = dt %>%
+    group_by(States_P, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+  
+  gdat_AOD_P1 = AOD_Filter_P1 %>%
+    group_by(States, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+  
+  gdat_AOD_P2 = AOD_Filter_P2 %>%
+    group_by(States, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+  
+  gdat_AOD_Diff <- left_join(gdat_AOD_P2,gdat_AOD_P1, by = c("States","Year") )  
+  gdat_AOD_Diff$AOD_Diff<-gdat_AOD_Diff$Log_AOD.x-gdat_AOD_Diff$Log_AOD.y
+  
+  gg_AOD = ggplot(gdat_AOD_P, aes(y=Log_AOD, x=Year, color= States_P)) +
+    geom_line() +
+    geom_vline(xintercept=2009, linetype = "dotted") +
+    theme_bw() +
+    ggtitle("Figure A6(A): Log(AOD) [Period 1 & Period 2]")+
+    ylab("Log(AOD)")
+  
+  #gg_AOD
+  ggsave("Figures_Tables/AOD_Trend_Dist.png")
+  
+  gg_AOD_D = ggplot(gdat_AOD_Diff, aes(y=AOD_Diff, x=Year, color= States)) +
+    geom_line() +
+    geom_vline(xintercept=2009, linetype = "dotted") +
+    theme_bw() +
+    ggtitle("Figure A6(B):Difference in Log(AOD) [Period 2-Period 1]")+
+    ylab("Log(AOD) [P2-P1]")
+  
+  y.pre.tr <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==1, Post.x==0)$AOD_Diff)  ,2), nsmall = 2)
+  y.exp.tr <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==1, Post.x==1)$AOD_Diff)  ,2), nsmall = 2)
+  y.pre.co <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==0, Post.x==0)$AOD_Diff)  ,2), nsmall = 2)
+  y.exp.co <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==0, Post.x==1)$AOD_Diff)  ,2), nsmall = 2)
+  gg_AOD_D = gg_AOD_D + 
+    annotate("label", x=2005, y=0.5,label=y.pre.tr) +
+    annotate("label", x=2005, y=0,label=y.pre.co) +
+    annotate("label", x=2012, y=0.7,label=y.exp.tr) +
+    annotate("label", x=2012, y=0.2,label=y.exp.co)
+  gg_AOD_D
+  ggsave("Figures_Tables/AOD_Trend_Diff_Dist.png")
+  
+# Section 2  Event Study
+  #AOD_Filter_P<-dt
+  dt$Time_To_Treatment<-dt$Year-2009
+  dt$Log_Rainfall<-log(dt$Rainfall)
+  dt$Log_Temp<-log(dt$Temp)
+  
+  #Removing the -inf values from the rainfall data
+  dt<-subset(dt,dt$Log_Rainfall!=-Inf)
+  
+  ESLL_DDD_Model_AOD3<- felm(Log_AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                             +Period #single variable
+                             +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                             +Log_Rainfall+Log_Temp #RF & Temp Control
+                             |State+Year #Fixed effects
+                             |0|State+Year, data = dt)
+  
+  summary(ESLL_DDD_Model_AOD3)  
+  
+  #Plot
+  #   summary(ESLL_DDD_Model_AOD3)
+  ES_AOD_Coef<-as.data.frame(ESLL_DDD_Model_AOD3$coefficients) #Check Model Coef    
+  ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+  ES_AOD_Coef$SE<-ESLL_DDD_Model_AOD3$cse #Check Model CSE
+  ES_AOD_Coef<-ES_AOD_Coef[1:14,]
+  ES_AOD_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+  ES_AOD_Coef[15,]=c(0,0,-1)
+  colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+  
+  ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+  ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+  
+  ES_AOD_Coef$before_after <- ifelse(ES_AOD_Coef$Time_To_Treatment < 0,0,1)
+  ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef, color=factor(before_after))) +
+    geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+    geom_line() +
+    geom_point() +
+    #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+    scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+    theme_bw() +
+    xlab("Years Before/After Policy") +
+    geom_vline(xintercept = 0, linetype="dotted") +
+    ylab("Estimate [Log(AOD)]") + #Check Log
+    ggtitle("Figure A6(C): Log(AOD) (DDD Model): Event Study Plot (District-Level)")+
+    #ggtitle("")+
+    geom_hline(yintercept=0) + #Check Title
+    labs(color= "")
+  ggsave("Figures_Tables/ESLL_DDD_AOD_RFTP_RL_Dist.png")   #Check Output file
+  
+  LMA4_DDD_SY_FE_RF_TP_DIST<-felm(Log_AOD~Tr_State+Post+Period+Post_Tr_State+Period*Post+Tr_State*Period+DDD
+                             +Log_Rainfall+Log_Temp
+                             |State+Year
+                             |0|State+Year, data=dt)
+  
+  #stargazer(LMA4_DDD_SY_FE_RF_TP_DIST, type = "text", keep = "Period_Post_Tr_State")  
+  
+### 4. Robustness Checks: Air Pollution Spillover to U.P. and Bihar
+  State_list_reg_RC<-c("Andhra Pradesh","Chhattisgarh","Gujarat","Haryana",
+                       "Jharkhand","Karnataka","Kerala","Madhya Pradesh",
+                       "Maharashtra","Odisha","Punjab",
+                       "Rajasthan","Tamil Nadu","Telangana","West Bengal")
+ 
+   dt_P_RC<-dt[dt$State %in% State_list_reg_RC, ]
+  
+    #Event Study
+    ESLL_DDD_AOD3_RC_DIST<- felm(Log_AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                            +Period #single variable
+                            +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                            +Log_Rainfall+Log_Temp #RF & Temp Control
+                            |State+Year #Fixed effects
+                            |0|State+Year, data = dt_P_RC)
+    
+    #   summary(ESLL_DDD_AOD3_RC)
+    ES_AOD_Coef<-as.data.frame(ESLL_DDD_AOD3_RC_DIST$coefficients) #Check Model Coef    
+    ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+    ES_AOD_Coef$SE<-ESLL_DDD_AOD3_RC_DIST$cse #Check Model CSE
+    ES_AOD_Coef<-ES_AOD_Coef[1:14,]
+    ES_AOD_Coef$Time_To_Treatment<-c(-7:-2,0:7)
+    ES_AOD_Coef[15,]=c(0,0,-1)
+    colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+    
+    ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+    ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+    
+    ES_AOD_Coef$before_after <- ifelse(ES_AOD_Coef$Time_To_Treatment < 0,0,1)
+    ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef, color=factor(before_after))) +
+      geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+      geom_line() +
+      geom_point() +
+      #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+      scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+      theme_bw() + 
+      labs(color="")+
+      xlab("Years before/after Policy") +
+      geom_vline(xintercept = 0, linetype="dotted") +
+      ylab("Estimate [Log(AOD)]") + #Check Log
+      #ggtitle("Log(AOD) (DDD Model): Event Study Plot")+
+      ggtitle("Figure A6(D): AOD (Robustness Check) (District-Level)")+
+      geom_hline(yintercept=0) #Check Title
+  
+    LMA4_DDD_SY_FE_RF_TP_RC_DIST<-felm(Log_AOD~Tr_State+Post+Period+Post_Tr_State+Period*Post+Tr_State*Period+DDD
+                                  +Log_Rainfall+Log_Temp
+                                  |State+Year
+                                  |0|State+Year, data=dt_P_RC)
+    
+    dt_P1<-subset(dt,Period==0)
+    dt_P2<-subset(dt,Period==1)
+    #stargazer(LMA4_DDD_SY_FE_RF_TP,LMA4_DDD_SY_FE_RF_TP_RC, type = "text", keep = "Period_Post_Tr_State")  
+    LMA4_DiD_SY_FE_RF_TP_P1_DIST<-felm(Log_AOD~Tr_State+Post+Post_Tr_State
+                             +Log_Rainfall+Log_Temp
+                             |State+Year
+                             |0|State+Year, data=dt_P1)
+    
+    LMA4_DiD_SY_FE_RF_TP_P2_DIST<-felm(Log_AOD~Tr_State+Post+Post_Tr_State
+                             +Log_Rainfall+Log_Temp
+                             |State+Year
+                             |0|State+Year, data=dt_P2)
+
+    stargazer(LMA4_DiD_SY_FE_RF_TP_P1_DIST,LMA4_DiD_SY_FE_RF_TP_P2_DIST,type = "html",
+              column.labels=c("Control Period","Treatment Period"),
+              title = "Table A6(B): Log(AOD) Period-wise DiD Regression",
+              add.lines = list(c("State Fixed-Effect","Yes","Yes" ),
+                                 c("Year Fixed-Effect","Yes","Yes"),
+                                 c("Clustered Std. Error", "State+Year","State+Year"),
+                                 c("Control Factors","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"))
+                ,notes.align="l",notes.label="")
+      
+    stargazer(LMA4_DDD_SY_FE_RF_TP,
+                LMA4_DDD_SY_FE_RF_TP_RC,
+                LMA4_DDD_SY_FE_RF_TP_DIST,
+                LMA4_DDD_SY_FE_RF_TP_RC_DIST,type = "html", 
+                out="Figures_Tables/Tab 4 Log_AOD_Reg_DIST.doc", 
+                #out="Figures_Tables/12_Log_AOD_Filter_DDD_Results_RF_TP.doc",
+                keep = 'DDD',
+                dep.var.labels.include=TRUE,title=" Table A6 (C) :Log(AOD) (DDD) State & District Level Analysis (With Spillover Effect Control)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("State-Level","State-Level","Dist-Level","Dist-Level"),
+                add.lines = list(c("Unit of Analysis", "State","State","Dist","Dist" ),
+                                 c("State Fixed-Effect", "Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", "State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", "Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"), 
+                                 c("Control States","15","13","15","13"))
+                ,notes.align="l",notes.label="")
+
+```
+
+### A7. Dropping 2002 from AOD Data
+```{r,7 Dropping 2002 District Level Analysis for AOD ,results='asis',display=F, echo=FALSE}
+
+########################## Analysis: Copy to RMD ###############################
+  dt<-read.csv("./0_Final_Data_GWAP/Dist_AT_AVG_Period_17States.csv")
+  dt<-dt[dt$Year %in% 2003:2016, ]
+
+  
+  # Regression Analysis #
+  dt$Rainfall<-ifelse(dt$Period==0,dt$Rainfall_P1,dt$Rainfall_P2)
+  dt$Temp<-ifelse(dt$Period==0,dt$Temp_P1,dt$Temp_P2)
+  dt$DDD<-dt$Period_Post_Tr_State
+# trend plots Section 1
+  library(ggplot2)
+  dt$States<-ifelse(dt$Tr_State==1,"Treat","Control")
+  dt$States_P<-paste0(dt$States,":P",dt$Period+1)
+  AOD_Filter_P1<-subset(dt,dt$Period==0)
+  AOD_Filter_P2<-subset(dt,dt$Period==1)
+  
+  # gg_AOD_S = ggplot(AOD_Filter_P2, aes(y=Log_AOD, x=Year, color= State)) +
+  #   geom_line() +
+  #   geom_vline(xintercept=2009, linetype = "dotted") +
+  #   theme_bw() +
+  #   ggtitle("Log(AOD) [All States: Period 2]")+
+  #   ylab("Log(AOD)") 
+  # gg_AOD_S
+  # ggsave("Figures_Tables/AOD_Trend_AllS_P2.png")
+  # #Reason Why we can not use the Synthetic Control for the AOD Data. Haryana & Punjab are the Outliers
+  
+  gdat_AOD_P = dt %>%
+    group_by(States_P, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+  
+  gdat_AOD_P1 = AOD_Filter_P1 %>%
+    group_by(States, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+  
+  gdat_AOD_P2 = AOD_Filter_P2 %>%
+    group_by(States, Year, Post,Tr_State, Period) %>%
+    summarize(Log_AOD = mean(Log_AOD))
+  
+  gdat_AOD_Diff <- left_join(gdat_AOD_P2,gdat_AOD_P1, by = c("States","Year") )  
+  gdat_AOD_Diff$AOD_Diff<-gdat_AOD_Diff$Log_AOD.x-gdat_AOD_Diff$Log_AOD.y
+  
+  gg_AOD = ggplot(gdat_AOD_P, aes(y=Log_AOD, x=Year, color= States_P)) +
+    geom_line() +
+    geom_vline(xintercept=2009, linetype = "dotted") +
+    theme_bw() +
+    ggtitle("Figure A7(A): Log(AOD) [Period 1 & Period 2]")+
+    ylab("Log(AOD)")
+  
+  #gg_AOD
+  ggsave("Figures_Tables/AOD_Trend_Dist_2003.png")
+  
+  gg_AOD_D = ggplot(gdat_AOD_Diff, aes(y=AOD_Diff, x=Year, color= States)) +
+    geom_line() +
+    geom_vline(xintercept=2009, linetype = "dotted") +
+    theme_bw() +
+    ggtitle("Figure A7(B): Difference in Log(AOD) [Period 2-Period 1]")+
+    ylab("Log(AOD) [P2-P1]")
+  
+  y.pre.tr <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==1, Post.x==0)$AOD_Diff)  ,2), nsmall = 2)
+  y.exp.tr <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==1, Post.x==1)$AOD_Diff)  ,2), nsmall = 2)
+  y.pre.co <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==0, Post.x==0)$AOD_Diff)  ,2), nsmall = 2)
+  y.exp.co <<- format(round(mean(filter(gdat_AOD_Diff,Tr_State.x==0, Post.x==1)$AOD_Diff)  ,2), nsmall = 2)
+  gg_AOD_D = gg_AOD_D + 
+    annotate("label", x=2005, y=0.5,label=y.pre.tr) +
+    annotate("label", x=2005, y=0,label=y.pre.co) +
+    annotate("label", x=2012, y=0.7,label=y.exp.tr) +
+    annotate("label", x=2012, y=0.2,label=y.exp.co)
+  gg_AOD_D
+  ggsave("Figures_Tables/AOD_Trend_Diff_Dist_2003.png")
+  
+# Section 2  Event Study
+  #AOD_Filter_P<-dt
+  dt$Time_To_Treatment<-dt$Year-2009
+  dt$Log_Rainfall<-dt$Rainfall
+  dt$Log_Temp<-dt$Temp
+  
+  ESLL_DDD_Model_AOD3_2003<- felm(Log_AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                             +Period #single variable
+                             +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                             +Log_Rainfall+Log_Temp #RF & Temp Control
+                             |State+Year #Fixed effects
+                             |0|State+Year, data = dt)
+  
+  summary(ESLL_DDD_Model_AOD3_2003)  
+  
+  #Plot
+  #   summary(ESLL_DDD_Model_AOD3)
+  ES_AOD_Coef<-as.data.frame(ESLL_DDD_Model_AOD3_2003$coefficients) #Check Model Coef    
+  ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+  ES_AOD_Coef$SE<-ESLL_DDD_Model_AOD3_2003$cse #Check Model CSE
+  ES_AOD_Coef<-ES_AOD_Coef[1:13,]
+  ES_AOD_Coef$Time_To_Treatment<-c(-6:-2,0:7)
+  ES_AOD_Coef[15,]=c(0,0,-1)
+  colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+  
+  ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+  ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+  
+  ES_AOD_Coef$before_after <- ifelse(ES_AOD_Coef$Time_To_Treatment < 0,0,1)
+  ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef, color=factor(before_after))) +
+    geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+    geom_line() +
+    geom_point() +
+    #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+    scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+    theme_bw() +
+    xlab("Years Before/After Policy") +
+    geom_vline(xintercept = 0, linetype="dotted") +
+    ylab("Estimate [Log(AOD)]") + #Check Log
+    ggtitle("Figure A7(C): Log(AOD) (DDD Model): Event Study Plot (Dropping 2002)")+
+    #ggtitle("")+
+    geom_hline(yintercept=0) + #Check Title
+    labs(color= "")
+  ggsave("Figures_Tables/ESLL_DDD_AOD_RFTP_RL_Dist_2003.png")   #Check Output file
+  
+  LMA4_DDD_SY_FE_RF_TP_DIST_2003<-felm(Log_AOD~Tr_State+Post+Period+Post_Tr_State+Period*Post+Tr_State*Period+DDD
+                             +Log_Rainfall+Log_Temp
+                             |State+Year
+                             |0|State+Year, data=dt)
+  
+  #stargazer(LMA4_DDD_SY_FE_RF_TP_DIST, type = "text", keep = "Period_Post_Tr_State")  
+  
+### 4. Robustness Checks: Air Pollution Spillover to U.P. and Bihar
+  State_list_reg_RC<-c("Andhra Pradesh","Chhattisgarh","Gujarat","Haryana",
+                       "Jharkhand","Karnataka","Kerala","Madhya Pradesh",
+                       "Maharashtra","Odisha","Punjab",
+                       "Rajasthan","Tamil Nadu","Telangana","West Bengal")
+  AOD_Filter_P_RC<-dt[dt$State %in% State_list_reg_RC, ]
+  
+    #Event Study
+    ESLL_DDD_AOD3_RC_DIST_2003<- felm(Log_AOD~relevel(factor(Time_To_Treatment*Tr_State*Period),ref="-1")
+                            +Period #single variable
+                            +Tr_State*Post+Tr_State*Period+Period*Post #Interaction between 2
+                            +Log_Rainfall+Log_Temp #RF & Temp Control
+                            |State+Year #Fixed effects
+                            |0|State+Year, data = AOD_Filter_P_RC)
+    
+    #   summary(ESLL_DDD_AOD3_RC)
+    ES_AOD_Coef<-as.data.frame(ESLL_DDD_AOD3_RC_DIST_2003$coefficients) #Check Model Coef    
+    ES_AOD_Coef<-as.data.frame(ES_AOD_Coef)
+    ES_AOD_Coef$SE<-ESLL_DDD_AOD3_RC_DIST_2003$cse #Check Model CSE
+    ES_AOD_Coef<-ES_AOD_Coef[1:13,]
+    ES_AOD_Coef$Time_To_Treatment<-c(-6:-2,0:7)
+    ES_AOD_Coef[15,]=c(0,0,-1)
+    colnames(ES_AOD_Coef)<-c("AOD_Coef","AOD_SE","Time_To_Treatment")
+    
+    ES_AOD_Coef$UB<-(ES_AOD_Coef$AOD_Coef)+1.96*(ES_AOD_Coef$AOD_SE)
+    ES_AOD_Coef$LB<-(ES_AOD_Coef$AOD_Coef)-1.96*(ES_AOD_Coef$AOD_SE)
+    
+    ES_AOD_Coef$before_after <- ifelse(ES_AOD_Coef$Time_To_Treatment < 0,0,1)
+    ggplot(ES_AOD_Coef, aes(x = Time_To_Treatment, y = AOD_Coef, color=factor(before_after))) +
+      geom_errorbar(aes(ymin = LB, ymax = UB), width=.1) +
+      geom_line() +
+      geom_point() +
+      #geom_ribbon(aes(ymin = LB, ymax = UB), alpha = 0.1, linetype="dashed") +
+      scale_color_manual(labels = c("Before the Acts","After the Acts"),values = c("#F8766D", "#00BFC4"))  +
+      theme_bw() + 
+      labs(color="")+
+      xlab("Years before/after Policy") +
+      geom_vline(xintercept = 0, linetype="dotted") +
+      ylab("Estimate [Log(AOD)]") + #Check Log
+      #ggtitle("Log(AOD) (DDD Model): Event Study Plot")+
+      ggtitle("Figure A7(D): Spillover Check (2003-2016)")+
+      geom_hline(yintercept=0) #Check Title
+  
+    LMA4_DDD_SY_FE_RF_TP_RC_DIST_2003<-felm(Log_AOD~Tr_State+Post+Period+Post_Tr_State+Period*Post+Tr_State*Period+DDD
+                                  +Log_Rainfall+Log_Temp
+                                  |State+Year
+                                  |0|State+Year, data=AOD_Filter_P_RC)
+    #stargazer(LMA4_DDD_SY_FE_RF_TP,LMA4_DDD_SY_FE_RF_TP_RC, type = "text", keep = "Period_Post_Tr_State")  
+      stargazer(LMA4_DDD_SY_FE_RF_TP_2003,
+                LMA4_DDD_SY_FE_RF_TP_RC_2003,
+                LMA4_DDD_SY_FE_RF_TP_DIST_2003,
+                LMA4_DDD_SY_FE_RF_TP_RC_DIST_2003,type = "html", 
+                out="Figures_Tables/Tab 4 Log_AOD_Reg_DIST_2003.doc", 
+                #out="Figures_Tables/12_Log_AOD_Filter_DDD_Results_RF_TP.doc",
+                keep = 'DDD',
+                dep.var.labels.include=TRUE,
+                title="Table A7: Log(AOD) (DDD) (Dropping Year 2002)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("State-Level","State-Level","Dist-Level","Dist-Level"),
+                add.lines = list(c("Unit of Analysis", "State","State","Dist","Dist" ),
+                                 c("State Fixed-Effect", "Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", "State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", "Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"), 
+                                 c("Control States","15","13","15","13"))
+                ,notes.align="l",notes.label="")
+
+```
+
+### A8. NDVI Data Synthetic Control
+```{r,8 NDVI Data Synthetic Control ,results='asis',display=F, echo=FALSE}
+    
+################################################################################
+# NDVI Data Synthetic Control    
+################################################################################
+   NDVI_SC<-read.csv("./0_Final_Data_GWAP/NDVI_Synth_07_30.csv") 
+   colnames(NDVI_SC)
+   
+   p_load(Synth,SCtools)
+   
+   dataprep_out <- dataprep(
+     foo = NDVI_SC, ## data
+     predictors = c("Rainfall_May", "Temp_May","Rainfall_June","Temp_June"), ## predictor variables (all pre-treatment periods)
+     predictors.op = "mean", ## functional form
+     time.predictors.prior = 2002:2008, ## define pre-treatment period
+     special.predictors = list( ## special predictors 
+       list("NDVI", c(2002:2008), "mean"), ## outcome variable averages from 2002-2008
+       list("Population", 2006, "mean"), ## Population in 2006 (Mean of 2001 and 2011)
+       list("SoD", 2004, "mean"), ## GW SOD in 2004
+       list("GSDP", 2004:2008, "mean"), ## mean GSDP in 2004-2008
+       list("AgGDP", 2004:2008, "mean"), ## mean agGDP in 2004-2008
+       list("RiceK", 2004:2008, "mean")), ## mean Rice cultivation Area in 2004:2008
+     #list("Factories", 2004:2008, "mean")), ##No of factories in the states
+     dependent = "NDVI", ## outcome variable
+     unit.variable = "St_Code", ## unit variable
+     unit.names.variable = "State", ## unit names
+     time.variable = "Year", ## time variable 
+     treatment.identifier = 0, ## treated state
+     controls.identifier = c(1:14), ## control states
+     time.optimize.ssr = 2002:2008,  ## time to optimize SSR
+     time.plot = 2002:2016 ## time to plot
+   )  
+   
+   #Preparing synth data
+   synth_out_NDVI <- synth(data.prep.obj = dataprep_out)  
+   
+   #Preparing synth tables
+   synth_tables<-synth.tab(dataprep.res = dataprep_out, synth.res = synth_out_NDVI)
+   names(synth_tables)
+   Synth_tab_pred<-synth_tables$tab.pred
+   Synth_tab_v<-synth_tables$tab.v
+   Synth_tab_loss<-synth_tables$tab.loss
+   Synth_tab_pred
+   Synth_tab_v
+   Synth_tab_loss
+   
+   #Save and load synth data
+   save(synth_out_NDVI, file='synth_out_NDVI.RData')
+   load('synth_out_NDVI.RData')
+   
+   ## plot outcome for treated and synthetic control
+   path.plot(synth_out_NDVI, dataprep_out, Ylab = "NDVI", Xlab = "Year", Main = "Outcome for Treated and Synthetic Control") #Figure A8(A1): 
+   
+   ## plot difference between treated and synthetic control
+   gaps.plot(synth_out_NDVI, dataprep_out, Ylab = "NDVI Difference", Xlab = "Year", Main = "Difference: Treated and Synthetic Control") #Figure A8(A2): 
+   
+   ## check out weights
+   Weights<-synth_out_NDVI$solution.w
+   Weights_Major<-synth_out_NDVI$solution.w[synth_out_NDVI$solution.w[,1]>.01]
+   Weights
+   Weights_Major
+   
+   ## generate placebos
+   p_load(SCtools)
+   placebos_NDVI <- generate.placebos(dataprep_out, synth_out_NDVI, Sigf.ipop = 3)
+
+   ## save and load
+   save(placebos_NDVI, file='placebos_NDVI.RData')
+   load('placebos_NDVI.RData')
+   
+   ## check out placebo plot
+   SCtools::plot_placebos(placebos_NDVI,discard.extreme = F, title= "Figure A8(A3)")
+   SCtools::plot_placebos(placebos_NDVI,discard.extreme = T, title= "Figure A8(A4)")
+   
+   ## look at MSPE ratios with and without outliers
+   mspe.plot(placebos_NDVI, discard.extreme = FALSE, plot.hist = TRUE, title= "Figure A8(A5)")
+   mspe.plot(placebos_NDVI, discard.extreme = TRUE, mspe.limit = 5, plot.hist = TRUE, title= "Figure A8(A6)")
+```
+
+Backdating for NDVI
+```{r,8 Back Dating NDVI Data Synthetic Control ,results='asis',display=F, echo=FALSE}
+    
+################################################################################
+# NDVI Data Synthetic Control (Back Dating 2007)  
+################################################################################
+   NDVI_SC<-read.csv("./0_Final_Data_GWAP/NDVI_Synth_07_30.csv") 
+   colnames(NDVI_SC)
+   
+   p_load(Synth,SCtools)
+   
+   dataprep_NDVI_BD <- dataprep(
+     foo = NDVI_SC, ## data
+     predictors = c("Rainfall_May", "Temp_May","Rainfall_June","Temp_June"), ## predictor variables (all pre-treatment periods)
+     predictors.op = "mean", ## functional form
+     time.predictors.prior = 2002:2007, ## define pre-treatment period
+     special.predictors = list( ## special predictors 
+       list("NDVI", c(2002:2007), "mean"), ## outcome variable averages from 2002-2008
+       list("Population", 2006, "mean"), ## Population in 2006 (Mean of 2001 and 2011)
+       list("SoD", 2004, "mean"), ## GW SOD in 2004
+       list("GSDP", 2004:2007, "mean"), ## mean GSDP in 2004-2008
+       list("AgGDP", 2004:2007, "mean"), ## mean agGDP in 2004-2008
+       list("RiceK", 2004:2007, "mean")), ## mean Rice cultivation Area in 2004:2008
+     #list("Factories", 2004:2008, "mean")), ##No of factories in the states
+     dependent = "NDVI", ## outcome variable
+     unit.variable = "St_Code", ## unit variable
+     unit.names.variable = "State", ## unit names
+     time.variable = "Year", ## time variable 
+     treatment.identifier = 0, ## treated state
+     controls.identifier = c(1:14), ## control states
+     time.optimize.ssr = 2002:2007,  ## time to optimize SSR
+     time.plot = 2002:2016 ## time to plot
+   )  
+   
+   #Preparing synth data
+   synth_out_NDVI_BD <- synth(data.prep.obj = dataprep_NDVI_BD)  
+   
+   #Preparing synth tables
+   synth_tables<-synth.tab(dataprep.res = dataprep_NDVI_BD, synth.res = synth_out_NDVI_BD)
+   names(synth_tables)
+   Synth_tab_pred<-synth_tables$tab.pred
+   Synth_tab_v<-synth_tables$tab.v
+   Synth_tab_loss<-synth_tables$tab.loss
+   Synth_tab_pred
+   Synth_tab_v
+   Synth_tab_loss
+   
+   #Save and load synth data
+   save(synth_out_NDVI_BD, file='synth_out_NDVI_BD.RData')
+   load('synth_out_NDVI_BD.RData')
+   
+   ## plot outcome for treated and synthetic control
+   path.plot(synth_out_NDVI_BD, dataprep_NDVI_BD, Ylab = "NDVI", Xlab = "Year", Main = "Figure A8(B1): Outcome for Treated and Synthetic Control (Back Dating)")
+   
+   ## plot difference between treated and synthetic control
+   gaps.plot(synth_out_NDVI_BD, dataprep_NDVI_BD, Ylab = "NDVI Difference", Xlab = "Year", Main = "Figure A8(B2): Difference: Treated and Synthetic Control (Back Dating)")
+   
+   ## check out weights
+   Weights<-synth_out_NDVI_BD$solution.w
+   Weights_Major<-synth_out_NDVI_BD$solution.w[synth_out_NDVI_BD$solution.w[,1]>.01]
+   Weights
+   Weights_Major
+   
+   ## generate placebos
+   p_load(SCtools)
+   placebos_NDVI_BD <- generate.placebos(dataprep_NDVI_BD, synth_out_NDVI_BD, Sigf.ipop = 3)
+
+   ## save and load
+   save(placebos_NDVI_BD, file='placebos_NDVI_BD.RData')
+   load('placebos_NDVI_BD.RData')
+   
+   ## check out placebo plot
+   SCtools::plot_placebos(placebos_NDVI_BD,discard.extreme = F, title= "Figure A8(B4)")
+   SCtools::plot_placebos(placebos_NDVI_BD,discard.extreme = T, title= "Figure A8(B5)")
+   
+   ## look at MSPE ratios with and without outliers
+   mspe.plot(placebos_NDVI_BD, discard.extreme = FALSE, plot.hist = TRUE, title= "Figure A8(B5)")
+   mspe.plot(placebos_NDVI_BD, discard.extreme = TRUE, mspe.limit = 5, plot.hist = TRUE, title= "Figure A8(B6)")
+```
+
+Exporting Final Stargazer Tables
+```{r,9 Additional Tables ,results='asis',display=F, echo=FALSE}
+  stargazer(LMA4_DDD_SY_FE_RF_TP_P1, LMA4_DDD_SY_FE_RF_TP_P2, LMA4_DDD_SY_FE_RF_TP, LMA4_DiD_SY_FE_RF_TP_P1_DIST,LMA4_DiD_SY_FE_RF_TP_P2_DIST,LMA4_DDD_SY_FE_RF_TP_DIST,
+            type = "latex",
+            column.labels=c("Control Period","Treatment Period", "DDD Regression","Control Period","Treatment Period", "DDD Regression"),
+            title="Table A3(C1): Log(AOD) Period-wise Separate DiD Regression (State-Level)",
+            out="Figures_Tables/Table 3 AOD Regression.tex",
+            add.lines = list(c("State Fixed-Effect","Yes","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Unit of Analysis","State","State","State","District","District","District"),
+                                 c("Year Fixed-Effect","Yes","Yes","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", "State+Year","State+Year","State+Year", "State+Year","State+Year","State+Year"),
+                                 c("Control Factors", "Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)", "Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"))
+                ,notes.align="l",notes.label="")  
+
+
+stargazer(LMA4_DDD_SY_FE_RF_TP_RC,
+          LMA4_DDD_SY_FE_RF_TP_RC_DIST,
+          LMA4_DDD_SY_FE_RF_TP_2003,
+          LMA4_DDD_SY_FE_RF_TP_DIST_2003,
+          LMA4_DDD_SY_FE_RF_TP_RC_2003,
+          LMA4_DDD_SY_FE_RF_TP_RC_DIST_2003,type = "latex", 
+                out="Figures_Tables/Tab 4 AOD Regression Robustness Check.tex", 
+                #out="Figures_Tables/12_Log_AOD_Filter_DDD_Results_RF_TP.doc",
+                keep = 'DDD',
+                dep.var.labels.include=TRUE,
+                title=" Log(AOD) (DDD) (Robustness Check)",
+                dep.var.caption="",notes="",notes.append=TRUE,
+                column.labels=c("State-Level","Dist-Level","State-Level","Dist-Level","State-Level","Dist-Level"),
+                add.lines = list(c("Unit of Analysis", "State","Dist","State","Dist","State","Dist" ),
+                                 c("State Fixed-Effect", "Yes","Yes","Yes","Yes","Yes","Yes" ),
+                                 c("Year Fixed-Effect", "Yes","Yes","Yes","Yes","Yes","Yes"),
+                                 c("Clustered Std. Error", "State+Year","State+Year","State+Year","State+Year","State+Year","State+Year"),
+                                 c("Control Factors", "Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)","Log RF+TP (P1&P2)"), 
+                                 c("Control States","13","13","15","15","13","13"))
+                ,notes.align="l",notes.label="")
+
+
+```
+
+### A9. GW Aquifers Map
+```{r,9 Placebo test for AOD ,results='asis',display=F, echo=FALSE}
+p_load(sf,RColorBrewer)
+Aquifer_shapefile <- "C:/Users/praha/OneDrive - The Pennsylvania State University/Data/Shapefiles/Aquifer_Maps_India/AquiferSystems_44N.shp"  # Provide the correct path
+aqf_shp <- st_read(Aquifer_shapefile)
+
+print(aqf_shp)  # View the structure
+plot(aqf_shp$geometry)  # Plot the spatial features
+
+table(aqf_shp$STATE_NAME)
+table(aqf_shp$YEILD_)
+table(aqf_shp$SYSTEM)
+table(aqf_shp$AQUIFER)
+
+custom_colors <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf","beige","orange","blue3","black")
+
+# Plot Aquifer map
+aq_map<-ggplot(data = aqf_shp) +
+  geom_sf(aes(fill = AQUIFER)) + 
+  geom_sf(data = aqf_shp$STATE_NAME, aes(color = "black"), fill = NA, size = 0.6) +  # Outline by STATE_NAME
+  scale_fill_manual(values = custom_colors) +
+  theme_minimal() +
+  labs(title = "", fill = "Aquifer Type")
+
+ggsave(aq_map,file = "Figures_Tables/1_aq_map.png",
+       height = )
+p_load(haven)
+drt_dta<-read_dta("C:/Users/praha/OneDrive - The Pennsylvania State University/PSU Research Work/Droughts India/0_Data/final-cross-section-drought-declared.dta")
+
+write.csv(drt_dta,"C:/Users/praha/OneDrive - The Pennsylvania State University/PSU Research Work/Droughts India/0_Data/final-cross-section-drought-declared.csv")
+```
+
+### A10. Placebo Test for AOD Data
+```{r,9 Placebo test for AOD ,results='asis',display=F, echo=FALSE}
+
+
+```
+P.S.: Prepared for PhD Dissertation: Praharsh M. Patel {Ph.D.: Energy, Environmental, and Food Economics}
